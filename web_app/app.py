@@ -1,12 +1,20 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import tensorflow as tf
 import numpy as np
 from PIL import Image
 import io
+import os
+from datetime import datetime
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app) # Habilitar CORS para permitir solicitudes desde el frontend
+
+# Carpeta para guardar las imágenes subidas
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 # Ruta al modelo TFLite
 MODEL_PATH = '2-modelo_pez_vgg.tflite'
@@ -34,6 +42,10 @@ def load_model():
 with app.app_context():
     load_model()
 
+@app.route('/')
+def index():
+    return render_template('index.html')
+
 @app.route('/predict', methods=['POST'])
 def predict():
     if interpreter is None:
@@ -47,8 +59,24 @@ def predict():
         return jsonify({"error": "No se seleccionó ningún archivo."}), 400
 
     try:
-        # Leer la imagen
-        img = Image.open(io.BytesIO(file.read()))
+        # Leer los datos de la imagen en memoria
+        image_data = file.read()
+
+        # Guardar la imagen en el servidor con un nombre único
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        unique_filename = f"{timestamp}-{filename}"
+        
+        # Asegurarse de que la carpeta de subida exista
+        if not os.path.exists(UPLOAD_FOLDER):
+            os.makedirs(UPLOAD_FOLDER)
+            
+        with open(os.path.join(UPLOAD_FOLDER, unique_filename), 'wb') as f:
+            f.write(image_data)
+        print(f"Imagen guardada como: {unique_filename}")
+
+        # Procesar la imagen para la predicción
+        img = Image.open(io.BytesIO(image_data))
         img = img.convert('RGB') # Asegurarse de que sea RGB
         img = img.resize((IMAGE_SIZE, IMAGE_SIZE)) # Redimensionar
 
