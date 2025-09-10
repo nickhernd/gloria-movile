@@ -1,0 +1,44 @@
+/* Styles for prediction bars */
+.prediction-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 0.95rem;
+}
+
+.prediction-label {
+    flex-basis: 120px; /* Fixed width for labels */
+    margin-right: 15px;
+    font-weight: bold;
+    color: #343a40; /* Dark gray text */
+}
+
+.prediction-bar-container {
+    flex-grow: 1;
+    height: 20px;
+    background-color: #e9ecef; /* Light gray background */
+    border-radius: 5px;
+    overflow: hidden; /* Ensures the bar stays within rounded corners */
+    position: relative;
+}
+
+.prediction-bar {
+    height: 100%;
+    background-color: #007bff; /* Bootstrap primary blue */
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end; /* Align percentage text to the right */
+    padding-right: 5px;
+    color: white;
+    font-weight: bold;
+    transition: width 0.5s ease-in-out; /* Smooth transition for width changes */
+}
+
+.prediction-percentage {
+    width: 60px; /* Fixed width for percentage text */
+    text-align: right;
+    margin-left: 15px;
+    font-weight: bold;
+    color: #343a40; /* Dark gray text */
+}

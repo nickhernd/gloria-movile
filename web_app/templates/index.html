@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clasificador de Peces</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-light" style="font-family: 'Roboto', sans-serif;">
+    <div class="container mt-5">
+        <div class="text-center">
+            <h1 class="display-4">Clasificador de Peces</h1>
+            <p class="lead">Sube una imagen o toma una foto para clasificar el pez.</p>
+        </div>
+
+        <div class="row justify-content-center mt-4">
+            <div class="col-md-8">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div class="d-grid gap-2 mb-3">
+                            <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+                            <label for="imageUpload" class="btn btn-primary btn-lg">Seleccionar Imagen</label>
+                        </div>
+                        <div class="text-center">
+                             <button id="cameraButton" class="btn btn-secondary">Tomar Foto</button>
+                        </div>
+
+                        <div class="image-display text-center mt-3">
+                            <video id="videoFeed" autoplay style="display:none; width: 100%; border-radius: .25rem;"></video>
+                            <canvas id="canvas" style="display:none;"></canvas>
+                            <img id="previewImage" src="#" alt="Vista previa de la imagen" class="img-fluid rounded" style="display:none;">
+                        </div>
+
+                        <div class="text-center mt-3">
+                            <button id="classifyButton" class="btn btn-primary btn-lg" style="display:none;">Clasificar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row justify-content-center mt-4">
+            <div class="col-md-8">
+                <div id="loading" class="alert alert-info" style="display:none;">
+                    <div class="d-flex align-items-center">
+                        <strong>Clasificando...</strong>
+                        <div class="spinner-border ms-auto" role="status" aria-hidden="true"></div>
+                    </div>
+                </div>
+                <div id="error" class="alert alert-danger" style="display:none;"></div>
+
+                <div class="results-section card" style="display:none;">
+                    <div class="card-header">
+                        Resultados
+                    </div>
+                    <div id="predictions" class="card-body"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
