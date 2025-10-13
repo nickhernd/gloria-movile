@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads (se montarán como volumen)
+web_app/uploads/*
+
+# Logs
+*.log
+
+# Documentación
+README.md
+
+# Scripts de prueba
+test_setup.py
+inspector.py
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Modelo TFLite viejo (ya no se usa)
+web_app/2-modelo_pez_vgg.tflite
