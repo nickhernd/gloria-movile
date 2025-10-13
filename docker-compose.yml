@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gloria-mobile-app
+    ports:
+      - "5000:5000"
+    volumes:
+      # Montar directorio de uploads para persistir imágenes
+      - ./web_app/uploads:/app/web_app/uploads
+      # Opcional: montar código para desarrollo (descomentar para hot-reload)
+      # - ./web_app:/app/web_app
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

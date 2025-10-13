@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import tensorflow as tf
+import torch
+import clip
 import numpy as np
 from PIL import Image
 import io
@@ -9,34 +10,219 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-CORS(app) # Habilitar CORS para permitir solicitudes desde el frontend
+CORS(app)
 
 # Carpeta para guardar las imágenes subidas
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-# Ruta al modelo TFLite
-MODEL_PATH = '2-modelo_pez_vgg.tflite'
-IMAGE_SIZE = 224
+# Configuración de CLIP
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = None
+preprocess = None
 
-interpreter = None
-input_details = None
-output_details = None
+# Definición de clases de texto para cada especie
+# DORADA (Sparus aurata / S_AURATA)
+TEXT_LABELS_DORADA = [
+    "a close-up of a fish with a uniform gray color that transitions to a white ventral side, an oval body and the mouth is slightly tilted upwards, the lateral fins are close to the body and small,",  # Cultivada
+    "a close-up of a fish with a straight body, the color transitions from a darker upper side to a white ventral side and in which the mouth follows direction of the main axis of the body, the dorsal fin is symmetrical"  # Salvaje
+]
+
+# LUBINA (Dicentrarchus labrax / D_LABRAX)
+TEXT_LABELS_LUBINA = [
+    "a close-up of a dark grey fish with a curved bottom, the lateral fins are close to the body and small",  # Cultivada
+    "a close-up of a fish with a flat bottom and in mouth follows the direction of the main axis of the body, the lateral fins separated from the body and oriented slightly backward and the dorsal fin is symmetrical"  # Salvaje
+]
+
+# Labels para validar que hay un pez
+VALIDATION_LABELS = [
+    "a close-up photo of a fish",
+    "a photo without any fish, an empty photo, no fish present"
+]
+
+# Labels para detectar tipo de pez con características distintivas
+SPECIES_LABELS = [
+    "a photo of a dorada fish with oval rounded body, silver grey color with golden spots near eyes, steep forehead profile, sparus aurata gilthead seabream",
+    "a photo of a sea bass fish with elongated streamlined body, dark silver grey color, straight head profile, prominent jaw, dicentrarchus labrax lubina"
+]
+
+CLASS_NAMES = {
+    0: "Cultivada",
+    1: "Salvaje"
+}
+
+SPECIES_NAMES = {
+    0: "Dorada",
+    1: "Lubina"
+}
 
 def load_model():
-    global interpreter, input_details, output_details
+    """Carga el modelo CLIP"""
+    global model, preprocess
     try:
-        interpreter = tf.lite.Interpreter(model_path=MODEL_PATH)
-        interpreter.allocate_tensors()
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-        print(f"Modelo TFLite cargado exitosamente desde {MODEL_PATH}")
-        print(f"Detalles de entrada: {input_details}")
-        print(f"Detalles de salida: {output_details}")
+        print(f"Cargando modelo CLIP en dispositivo: {device}")
+        model, preprocess = clip.load('ViT-B/32', device)
+        print("Modelo CLIP cargado exitosamente")
     except Exception as e:
-        print(f"Error al cargar el modelo TFLite: {e}")
-        interpreter = None
+        print(f"Error al cargar el modelo CLIP: {e}")
+        model = None
+
+def validate_fish_presence(image_path):
+    """
+    Valida que haya un pez en la imagen
+
+    Returns:
+        tuple: (is_fish_present, confidence)
+    """
+    if model is None:
+        raise Exception("Modelo no cargado")
+
+    # Cargar y preprocesar imagen
+    image = Image.open(image_path).convert('RGB')
+    image_input = preprocess(image).unsqueeze(0).to(device)
+
+    # Tokenizar textos de validación
+    text_tokens = clip.tokenize(VALIDATION_LABELS).to(device)
+
+    with torch.no_grad():
+        image_features = model.encode_image(image_input)
+        text_features = model.encode_text(text_tokens)
+
+        # Normalizar
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+        # Calcular similaridad
+        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+    probs = similarity[0].cpu().numpy()
+    fish_confidence = float(probs[0])
+
+    # Si la confianza de que hay un pez es mayor al 50%, es válido
+    return fish_confidence > 0.5, fish_confidence
+
+def detect_species(image_path):
+    """
+    Detecta automáticamente si es dorada o lubina usando ensemble de prompts
+
+    Returns:
+        tuple: (species_name, species_id, confidence)
+    """
+    if model is None:
+        raise Exception("Modelo no cargado")
+
+    # Cargar y preprocesar imagen
+    image = Image.open(image_path).convert('RGB')
+    image_input = preprocess(image).unsqueeze(0).to(device)
+
+    # Múltiples prompts por especie para mejor detección (ensemble)
+    dorada_prompts = [
+        "a photo of a dorada fish with oval rounded body, silver grey color with golden spots near eyes, steep forehead profile, sparus aurata gilthead seabream",
+        "a gilthead sea bream fish with rounded oval shape and golden markings",
+        "sparus aurata dorada with compact oval body shape"
+    ]
+
+    lubina_prompts = [
+        "a photo of a sea bass fish with elongated streamlined body, dark silver grey color, straight head profile, prominent jaw, dicentrarchus labrax lubina",
+        "a european sea bass with long streamlined body and prominent lower jaw",
+        "dicentrarchus labrax lubina with elongated torpedo-shaped body"
+    ]
+
+    # Combinar todos los prompts
+    all_prompts = dorada_prompts + lubina_prompts
+    text_tokens = clip.tokenize(all_prompts).to(device)
+
+    with torch.no_grad():
+        image_features = model.encode_image(image_input)
+        text_features = model.encode_text(text_tokens)
+
+        # Normalizar
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+        # Calcular similaridad
+        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+    probs = similarity[0].cpu().numpy()
+
+    # Promediar las probabilidades de cada especie (ensemble)
+    num_dorada_prompts = len(dorada_prompts)
+    num_lubina_prompts = len(lubina_prompts)
+
+    dorada_prob = np.mean(probs[:num_dorada_prompts])
+    lubina_prob = np.mean(probs[num_dorada_prompts:])
+
+    # Normalizar probabilidades
+    total = dorada_prob + lubina_prob
+    dorada_prob_norm = dorada_prob / total
+    lubina_prob_norm = lubina_prob / total
+
+    # Seleccionar especie con mayor probabilidad
+    if dorada_prob_norm > lubina_prob_norm:
+        species_id = 0
+        confidence = float(dorada_prob_norm)
+    else:
+        species_id = 1
+        confidence = float(lubina_prob_norm)
+
+    print(f"Detección de especie - Dorada: {dorada_prob_norm:.3f}, Lubina: {lubina_prob_norm:.3f}")
+
+    return SPECIES_NAMES[species_id], species_id, confidence
+
+def classify_fish(image_path, species_id):
+    """
+    Clasifica si el pez es cultivado o salvaje
+
+    Args:
+        image_path: Ruta a la imagen
+        species_id: 0 para Dorada, 1 para Lubina
+
+    Returns:
+        dict con clase predicha, confianza y probabilidades
+    """
+    if model is None:
+        raise Exception("Modelo no cargado")
+
+    # Seleccionar text labels según la especie
+    if species_id == 0:  # Dorada
+        text_labels = TEXT_LABELS_DORADA
+    else:  # Lubina
+        text_labels = TEXT_LABELS_LUBINA
+
+    # Cargar y preprocesar imagen
+    image = Image.open(image_path).convert('RGB')
+    image_input = preprocess(image).unsqueeze(0).to(device)
+
+    # Tokenizar textos
+    text_tokens = clip.tokenize(text_labels).to(device)
+
+    # Obtener embeddings
+    with torch.no_grad():
+        image_features = model.encode_image(image_input)
+        text_features = model.encode_text(text_tokens)
+
+        # Normalizar
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+        # Calcular similaridad y aplicar softmax
+        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+    # Obtener predicción
+    probs = similarity[0].cpu().numpy()
+    predicted_class = int(np.argmax(probs))
+    confidence = float(probs[predicted_class])
+
+    return {
+        "predicted_class": predicted_class,
+        "class_name": CLASS_NAMES[predicted_class],
+        "confidence": confidence,
+        "probabilities": {
+            "cultivada": float(probs[0]),
+            "salvaje": float(probs[1])
+        }
+    }
 
 # Cargar el modelo al iniciar la aplicación Flask
 with app.app_context():
@@ -48,7 +234,7 @@ def index():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    if interpreter is None:
+    if model is None:
         return jsonify({"error": "Modelo no cargado."}), 500
 
     if 'image' not in request.files:
@@ -66,37 +252,75 @@ def predict():
         filename = secure_filename(file.filename)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         unique_filename = f"{timestamp}-{filename}"
-        
+
         # Asegurarse de que la carpeta de subida exista
         if not os.path.exists(UPLOAD_FOLDER):
             os.makedirs(UPLOAD_FOLDER)
-            
-        with open(os.path.join(UPLOAD_FOLDER, unique_filename), 'wb') as f:
+
+        image_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        with open(image_path, 'wb') as f:
             f.write(image_data)
         print(f"Imagen guardada como: {unique_filename}")
 
-        # Procesar la imagen para la predicción
-        img = Image.open(io.BytesIO(image_data))
-        img = img.convert('RGB') # Asegurarse de que sea RGB
-        img = img.resize((IMAGE_SIZE, IMAGE_SIZE)) # Redimensionar
+        # 1. Validar que hay un pez en la imagen
+        is_fish, fish_confidence = validate_fish_presence(image_path)
 
-        # Convertir a array de numpy y normalizar
-        input_data = np.array(img, dtype=np.float32) / 255.0
-        input_data = np.expand_dims(input_data, axis=0) # Añadir dimensión de batch
+        if not is_fish:
+            return jsonify({
+                "error": "No se detectó un pez en la imagen",
+                "is_fish": False,
+                "fish_confidence": fish_confidence,
+                "message": "Por favor, toma una foto donde aparezca claramente un pez"
+            }), 400
 
-        # Establecer el tensor de entrada y realizar la inferencia
-        interpreter.set_tensor(input_details[0]['index'], input_data)
-        interpreter.invoke()
+        # 2. Detectar tipo de pez (Dorada o Lubina)
+        species_name, species_id, species_confidence = detect_species(image_path)
 
-        # Obtener los resultados
-        output_data = interpreter.get_tensor(output_details[0]['index'])
-        predictions = output_data[0].tolist() # Convertir a lista de Python
+        # Calcular probabilidades de ambas especies para debug
+        species_probs = {
+            "dorada": species_confidence if species_id == 0 else (1 - species_confidence),
+            "lubina": species_confidence if species_id == 1 else (1 - species_confidence)
+        }
 
-        return jsonify({"predictions": predictions})
+        # 3. Clasificar si es salvaje o cultivado
+        classification = classify_fish(image_path, species_id)
+
+        # Construir respuesta completa
+        result = {
+            "success": True,
+            "is_fish": True,
+            "fish_confidence": fish_confidence,
+            "species": species_name,
+            "species_id": species_id,
+            "species_confidence": species_confidence,
+            "species_probabilities": species_probs,
+            "classification": classification["class_name"],
+            "classification_id": classification["predicted_class"],
+            "classification_confidence": classification["confidence"],
+            "probabilities": classification["probabilities"],
+            "filename": unique_filename,
+            "summary": f"{species_name} {classification['class_name']}"
+        }
+
+        # Log para debug
+        print(f"Predicción final - Especie: {species_name} ({species_confidence:.2%}), Clasificación: {classification['class_name']} ({classification['confidence']:.2%})")
+
+        return jsonify(result)
 
     except Exception as e:
         print(f"Error durante la predicción: {e}")
-        return jsonify({"error": f"Error durante la predicción: {e}"}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error durante la predicción: {str(e)}"}), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Endpoint para verificar el estado del servicio"""
+    return jsonify({
+        "status": "ok",
+        "model_loaded": model is not None,
+        "device": device
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
