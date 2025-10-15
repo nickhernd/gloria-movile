@@ -96,7 +96,7 @@ async function classifyImage(imageSource) {
 // Mostrar resultados
 function displayResults(data) {
     // Resultado principal
-    const speciesIcon = data.species === 'Dorada' ? '🐟' : '🐠';
+    const speciesIcon = data.species === 'Dorada' ? '' : '';
     const classificationColor = data.classification === 'Salvaje' ? 'success' : 'warning';
 
     mainResult.innerHTML = `
