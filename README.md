@@ -7,7 +7,8 @@ Aplicación web inteligente que detecta automáticamente el tipo de pez (Dorada 
 - 🤖 **Detección automática de especie**: Identifica si es Dorada o Lubina sin necesidad de especificar
 - 🔍 **Validación inteligente**: Verifica que haya un pez en la imagen antes de clasificar
 - 📊 **Clasificación dual**: Determina si el pez es cultivado o salvaje
-- 📱 **Interfaz moderna**: Diseño limpio y responsivo con gradientes y animaciones
+- 🎥 **Detección en tiempo real**: Analiza video en vivo desde la cámara con overlay de resultados
+- 📱 **Interfaz minimalista**: Diseño limpio y responsivo estilo Apple/Notion
 - 📸 **Captura desde cámara**: Toma fotos directamente desde el navegador
 - 📁 **Carga de archivos**: Sube imágenes desde tu dispositivo
 - 🎯 **Alta precisión**: Niveles de confianza para cada predicción
@@ -136,9 +137,10 @@ python app.py
 
 ### Interfaz Web
 
+#### Modo Foto (Análisis único)
 1. Abre tu navegador en `http://localhost:5000`
 2. **Carga una imagen** o **toma una foto** de un pez
-3. Haz clic en **"Analizar Pez"**
+3. Haz clic en **"Analizar"**
 4. El sistema automáticamente:
    - ✅ Valida que hay un pez en la imagen
    - 🐟 Detecta si es Dorada o Lubina
@@ -148,6 +150,19 @@ python app.py
    - Clasificación (Cultivado/Salvaje)
    - Niveles de confianza
    - Probabilidades detalladas
+
+#### Modo Video (Detección en Tiempo Real) 🆕
+1. Haz clic en **"Usar Cámara"**
+2. Permite el acceso a la cámara
+3. Haz clic en **"Detección en Vivo"**
+4. Apunta la cámara hacia un pez
+5. Verás un overlay en tiempo real mostrando:
+   - 🐟 Especie detectada
+   - 🏷️ Clasificación (Cultivado/Salvaje)
+   - 📊 Nivel de confianza
+6. Haz clic en **"Detener"** para pausar la detección
+
+**Nota**: La detección en tiempo real se actualiza cada 2 segundos para optimizar el rendimiento.
 
 ### API REST
 

@@ -54,16 +54,25 @@
                         </div>
 
                         <!-- Image Preview -->
-                        <div class="image-preview-container">
-                            <video id="videoFeed" autoplay class="preview-media"></video>
+                        <div class="image-preview-container" style="position: relative;">
+                            <video id="videoFeed" autoplay playsinline class="preview-media"></video>
                             <canvas id="canvas" class="preview-media"></canvas>
                             <img id="previewImage" src="#" alt="Vista previa" class="preview-media">
+
+                            <!-- Overlay de detección en tiempo real -->
+                            <div id="realtimeOverlay" class="realtime-overlay">
+                                <div class="overlay-content"></div>
+                            </div>
                         </div>
 
-                        <!-- Classify Button -->
+                        <!-- Action Buttons -->
                         <div class="text-center mt-4">
-                            <button id="classifyButton" class="btn btn-lg px-5 classify-btn">
+                            <button id="classifyButton" class="btn btn-lg px-4 classify-btn">
                                 Analizar
+                            </button>
+                            <button id="realtimeButton" class="btn btn-lg px-4 realtime-btn">
+                                <i class="bi bi-camera-video"></i>
+                                Detección en Vivo
                             </button>
                         </div>
                     </div>
