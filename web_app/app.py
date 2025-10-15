@@ -313,6 +313,135 @@ def predict():
         traceback.print_exc()
         return jsonify({"error": f"Error durante la predicción: {str(e)}"}), 500
 
+@app.route('/predict_realtime', methods=['POST'])
+def predict_realtime():
+    """
+    Endpoint optimizado para detección en tiempo real.
+    Retorna respuestas más rápidas con menor logging.
+    """
+    if model is None:
+        return jsonify({"error": "Modelo no cargado."}), 500
+
+    if 'image' not in request.files:
+        return jsonify({"error": "No se encontró la imagen en la solicitud."}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "No se seleccionó ningún archivo."}), 400
+
+    try:
+        # Leer los datos de la imagen en memoria (sin guardar en disco para mayor velocidad)
+        image_data = file.read()
+
+        # Crear una ruta temporal en memoria
+        from io import BytesIO
+        image_path = BytesIO(image_data)
+
+        # 1. Validar que hay un pez en la imagen
+        image = Image.open(image_path).convert('RGB')
+        image_input = preprocess(image).unsqueeze(0).to(device)
+
+        # Validación de pez
+        text_tokens = clip.tokenize(VALIDATION_LABELS).to(device)
+        with torch.no_grad():
+            image_features = model.encode_image(image_input)
+            text_features = model.encode_text(text_tokens)
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+        probs = similarity[0].cpu().numpy()
+        fish_confidence = float(probs[0])
+
+        if fish_confidence <= 0.5:
+            return jsonify({
+                "success": False,
+                "is_fish": False,
+                "fish_confidence": fish_confidence,
+                "message": "Buscando pez..."
+            }), 200
+
+        # 2. Detectar especie con prompts ensemble
+        dorada_prompts = [
+            "a photo of a dorada fish with oval rounded body, silver grey color with golden spots near eyes, steep forehead profile, sparus aurata gilthead seabream",
+            "a gilthead sea bream fish with rounded oval shape and golden markings",
+            "sparus aurata dorada with compact oval body shape"
+        ]
+
+        lubina_prompts = [
+            "a photo of a sea bass fish with elongated streamlined body, dark silver grey color, straight head profile, prominent jaw, dicentrarchus labrax lubina",
+            "a european sea bass with long streamlined body and prominent lower jaw",
+            "dicentrarchus labrax lubina with elongated torpedo-shaped body"
+        ]
+
+        all_prompts = dorada_prompts + lubina_prompts
+        text_tokens = clip.tokenize(all_prompts).to(device)
+
+        with torch.no_grad():
+            text_features = model.encode_text(text_tokens)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+        probs = similarity[0].cpu().numpy()
+        num_dorada_prompts = len(dorada_prompts)
+
+        dorada_prob = np.mean(probs[:num_dorada_prompts])
+        lubina_prob = np.mean(probs[num_dorada_prompts:])
+
+        total = dorada_prob + lubina_prob
+        dorada_prob_norm = dorada_prob / total
+        lubina_prob_norm = lubina_prob / total
+
+        if dorada_prob_norm > lubina_prob_norm:
+            species_id = 0
+            species_confidence = float(dorada_prob_norm)
+        else:
+            species_id = 1
+            species_confidence = float(lubina_prob_norm)
+
+        species_name = SPECIES_NAMES[species_id]
+
+        # 3. Clasificar cultivado vs salvaje
+        text_labels = TEXT_LABELS_DORADA if species_id == 0 else TEXT_LABELS_LUBINA
+        text_tokens = clip.tokenize(text_labels).to(device)
+
+        with torch.no_grad():
+            text_features = model.encode_text(text_tokens)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+
+        probs = similarity[0].cpu().numpy()
+        predicted_class = int(np.argmax(probs))
+        classification_confidence = float(probs[predicted_class])
+
+        # Construir respuesta compacta para tiempo real
+        result = {
+            "success": True,
+            "is_fish": True,
+            "fish_confidence": fish_confidence,
+            "species": species_name,
+            "species_id": species_id,
+            "species_confidence": species_confidence,
+            "species_probabilities": {
+                "dorada": float(dorada_prob_norm),
+                "lubina": float(lubina_prob_norm)
+            },
+            "classification": CLASS_NAMES[predicted_class],
+            "classification_id": predicted_class,
+            "classification_confidence": classification_confidence,
+            "probabilities": {
+                "cultivada": float(probs[0]),
+                "salvaje": float(probs[1])
+            },
+            "summary": f"{species_name} {CLASS_NAMES[predicted_class]}"
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"Error en detección en tiempo real: {e}")
+        return jsonify({"success": False, "error": f"Error: {str(e)}"}), 500
+
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint para verificar el estado del servicio"""
