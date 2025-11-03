@@ -5,7 +5,7 @@ FROM python:3.10-slim
 RUN apt-get update && apt-get install -y \
     git \
     wget \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -17,7 +17,7 @@ COPY requirements.txt .
 
 # Instalar dependencias de Python
 # Instalamos PyTorch CPU-only para reducir tamaño de imagen
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+RUN pip install --no-cache-dir --timeout=600 torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir flask flask-cors pillow numpy werkzeug && \
     pip install --no-cache-dir git+https://github.com/openai/CLIP.git
 

@@ -10,16 +10,19 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 </head>
 <body>
-    <div class="text-center py-2">
-        <img src="{{ url_for('static', filename='images/gloria.jpg') }}" alt="Top Image 1" style="max-width: 150px; margin-right: 10px;">
-        <img src="{{ url_for('static', filename='images/universitat_alacante.jpg') }}" alt="Top Image 2" style="max-width: 150px;">
-    </div>
     <!-- Header -->
     <nav class="navbar">
         <div class="container">
-            <span class="navbar-brand mb-0">
-                Clasificador de Peces
-            </span>
+            <div class="d-flex justify-content-between w-100 align-items-center">
+                <div>
+                    <img src="{{ url_for('static', filename='images/gloria.png') }}" alt="Top Image 1" style="max-width: 150px; margin-right: 10px;">
+                    <img src="{{ url_for('static', filename='images/universitat_alacant.jpg') }}" alt="Top Image 2" style="max-width: 150px;">
+                </div>
+                <span class="navbar-brand mb-0 h1">
+                    Clasificador de Peces
+                </span>
+                <div></div>
+            </div>
         </div>
     </nav>
 
@@ -131,9 +134,9 @@
     <!-- Footer -->
     <footer class="text-center py-4 mt-5">
         <div>
-            <img src="{{ url_for('static', filename='images/bottom1.jpg') }}" alt="Bottom Image 1" style="max-width: 100px; margin: 0 5px;">
-            <img src="{{ url_for('static', filename='images/bottom2.jpg') }}" alt="Bottom Image 2" style="max-width: 100px; margin: 0 5px;">
-            <img src="{{ url_for('static', filename='images/bottom3.jpg') }}" alt="Bottom Image 3" style="max-width: 100px; margin: 0 5px;">
+            <img src="{{ url_for('static', filename='images/eut.jpg') }}" alt="Bottom Image 1" style="max-width: 150px; margin: 0 5px;">
+            <img src="{{ url_for('static', filename='images/fondos_europeos.jpg') }}" alt="Bottom Image 2" style="max-width: 150px; margin: 0 5px;">
+            <img src="{{ url_for('static', filename='images/pablo_de_olivade.jpg') }}" alt="Bottom Image 3" style="max-width: 150px; margin: 0 5px;">
         </div>
         <p class="text-muted small mb-0 mt-3">
             Clasificación basada en IA
