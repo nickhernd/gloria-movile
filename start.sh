@@ -3,7 +3,7 @@
 # Script de inicio rápido para Gloria Mobile
 
 echo "================================================"
-echo "  Gloria Mobile - Clasificador de Peces 🐟"
+echo "  Gloria Mobile"
 echo "================================================"
 echo ""
 
