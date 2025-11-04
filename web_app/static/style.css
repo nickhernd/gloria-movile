@@ -568,10 +568,25 @@ h6 {
 footer {
     margin-top: 4rem;
     padding: 2rem 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+}
+
+footer .logo-img {
+    height: 60px;
+    width: auto;
+    object-fit: contain;
 }
 
 footer .text-muted {
     color: var(--gray-600) !important;
+}
+
+.gloria-logo {
+    height: 40px;
 }
 
 /* Iconos */
