@@ -1,5 +1,6 @@
-const BACKEND_URL = 'http://localhost:5000/predict';
-const REALTIME_URL = 'http://localhost:5000/predict_realtime';
+// Usar URLs relativas para que funcione tanto en localhost como en red
+const BACKEND_URL = '/predict';
+const REALTIME_URL = '/predict_realtime';
 
 let videoStream;
 let realtimeInterval = null;
@@ -21,6 +22,7 @@ const mainResult = document.getElementById('mainResult');
 const detailedInfo = document.getElementById('detailedInfo');
 const probabilities = document.getElementById('probabilities');
 const realtimeOverlay = document.getElementById('realtimeOverlay');
+const closeModalButton = document.getElementById('closeModal');
 
 // Ocultar elementos al cargar
 window.addEventListener('DOMContentLoaded', () => {
@@ -37,11 +39,34 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // Utilidades
 function hideElement(element) {
-    if (element) element.style.display = 'none';
+    if (element) {
+        if (element.id === 'results') {
+            element.classList.remove('active');
+        } else {
+            element.style.display = 'none';
+        }
+    }
 }
 
 function showElement(element, displayType = 'block') {
-    if (element) element.style.display = displayType;
+    if (element) {
+        if (element.id === 'results') {
+            element.classList.add('active');
+        } else {
+            element.style.display = displayType;
+        }
+    }
+}
+
+// Funciones para modal
+function openModal() {
+    resultsDiv.classList.add('active');
+    document.body.style.overflow = 'hidden'; // Evitar scroll del body
+}
+
+function closeModal() {
+    resultsDiv.classList.remove('active');
+    document.body.style.overflow = ''; // Restaurar scroll del body
 }
 
 function showError(message) {
@@ -95,44 +120,43 @@ async function classifyImage(imageSource) {
 
 // Mostrar resultados
 function displayResults(data) {
-    // Resultado principal
-    const speciesIcon = data.species === 'Dorada' ? '' : '';
+    // Mostrar la imagen en el modal
+    const modalImage = document.getElementById('modalImage');
+    if (previewImage.style.display !== 'none' && previewImage.src) {
+        modalImage.src = previewImage.src;
+    } else if (canvas.style.display !== 'none') {
+        modalImage.src = canvas.toDataURL('image/jpeg');
+    }
+
+    // Resultado principal compacto
+    const speciesIcon = data.species === 'Dorada' ? '🐟' : '🐠';
     const classificationColor = data.classification === 'Salvaje' ? 'success' : 'warning';
 
     mainResult.innerHTML = `
-        <div class="text-center">
-            <div class="display-3 mb-3">${speciesIcon}</div>
-            <h2 class="mb-3">${data.summary}</h2>
-            <div class="d-flex justify-content-center gap-3 flex-wrap">
-                <span class="badge bg-primary fs-5 px-4 py-2">
-                    ${data.species}
-                </span>
-                <span class="badge bg-${classificationColor} fs-5 px-4 py-2">
-                    ${data.classification}
-                </span>
-            </div>
-        </div>
+        <h4>${speciesIcon} ${data.species} - ${data.classification}</h4>
     `;
 
-    // Información detallada
+    // Grid 2x2 de información
     detailedInfo.innerHTML = `
-        <div class="col-md-4">
-            <div class="info-card rounded text-center">
-                <h6 class="text-muted small mb-2">ESPECIE</h6>
-                <p class="fw-bold fs-4 mb-0">${(data.species_confidence * 100).toFixed(0)}%</p>
-            </div>
+        <div class="info-card">
+            <i class="bi bi-fish text-primary"></i>
+            <h5>ESPECIE</h5>
+            <div class="h2 text-primary">${(data.species_confidence * 100).toFixed(0)}%</div>
         </div>
-        <div class="col-md-4">
-            <div class="info-card rounded text-center">
-                <h6 class="text-muted small mb-2">CLASIFICACIÓN</h6>
-                <p class="fw-bold fs-4 mb-0">${(data.classification_confidence * 100).toFixed(0)}%</p>
-            </div>
+        <div class="info-card">
+            <i class="bi bi-award text-${classificationColor}"></i>
+            <h5>CLASIFICACIÓN</h5>
+            <div class="h2 text-${classificationColor}">${(data.classification_confidence * 100).toFixed(0)}%</div>
         </div>
-        <div class="col-md-4">
-            <div class="info-card rounded text-center">
-                <h6 class="text-muted small mb-2">DETECCIÓN</h6>
-                <p class="fw-bold fs-4 mb-0">${(data.fish_confidence * 100).toFixed(0)}%</p>
-            </div>
+        <div class="info-card">
+            <i class="bi bi-eye text-info"></i>
+            <h5>DETECCIÓN</h5>
+            <div class="h2 text-info">${(data.fish_confidence * 100).toFixed(0)}%</div>
+        </div>
+        <div class="info-card">
+            <i class="bi bi-check-circle text-success"></i>
+            <h5>PRECISIÓN</h5>
+            <div class="h2 text-success">${(((data.species_confidence + data.classification_confidence + data.fish_confidence) / 3) * 100).toFixed(0)}%</div>
         </div>
     `;
 
@@ -254,13 +278,11 @@ cameraButton.addEventListener('click', async () => {
 
 // Capturar frame del video y clasificar
 async function captureAndClassifyFrame() {
-    console.log('captureAndClassifyFrame iniciada');
     if (!videoFeed.videoWidth || !videoFeed.videoHeight) {
         console.log('Video no está listo:', videoFeed.videoWidth, videoFeed.videoHeight);
         return; // Video aún no está listo
     }
 
-    console.log('Capturando frame del video...');
     try {
         // Crear canvas temporal para capturar frame
         const tempCanvas = document.createElement('canvas');
@@ -450,6 +472,12 @@ function clearRealtimeOverlay() {
 function startRealtimeDetection() {
     if (isRealtimeActive) return;
 
+    // Verificar que el video está activo y listo
+    if (!videoFeed || videoFeed.style.display === 'none' || !videoStream) {
+        showError('Por favor, activa la cámara primero antes de iniciar la detección en vivo.');
+        return;
+    }
+
     console.log('Iniciando detección en tiempo real');
     isRealtimeActive = true;
     realtimeButton.classList.add('active');
@@ -458,10 +486,20 @@ function startRealtimeDetection() {
     hideElement(resultsDiv);
     hideElement(errorDiv);
 
-    // Ejecutar cada 1.5 segundos para mejor respuesta en tiempo real
-    console.log('Ejecutando primera captura...');
-    captureAndClassifyFrame(); // Primera ejecución inmediata
-    realtimeInterval = setInterval(captureAndClassifyFrame, 1500);
+    // Esperar a que el video esté completamente cargado antes de comenzar
+    const startDetection = () => {
+        if (videoFeed.videoWidth && videoFeed.videoHeight) {
+            console.log('Video listo, iniciando detección...');
+            showElement(realtimeOverlay);
+            captureAndClassifyFrame(); // Primera ejecución inmediata
+            realtimeInterval = setInterval(captureAndClassifyFrame, 1500);
+        } else {
+            console.log('Esperando a que el video esté listo...');
+            setTimeout(startDetection, 200);
+        }
+    };
+
+    startDetection();
 }
 
 // Detener detección en tiempo real
@@ -487,5 +525,18 @@ realtimeButton.addEventListener('click', () => {
         stopRealtimeDetection();
     } else {
         startRealtimeDetection();
+    }
+});
+
+// Event listeners para el modal
+closeModalButton.addEventListener('click', closeModal);
+
+// Cerrar modal al hacer click en el overlay
+document.querySelector('.modal-overlay').addEventListener('click', closeModal);
+
+// Cerrar modal con la tecla Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && resultsDiv.classList.contains('active')) {
+        closeModal();
     }
 });

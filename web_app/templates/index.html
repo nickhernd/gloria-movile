@@ -15,8 +15,8 @@
         <div class="container">
             <div class="d-flex justify-content-between w-100 align-items-center">
                 <div>
-                    <img src="{{ url_for('static', filename='images/gloria.png') }}" alt="Top Image 1" class="logo-img gloria-logo">
-                    <img src="{{ url_for('static', filename='images/universitat_alacant.png') }}" alt="Top Image 2" class="logo-img">
+                    <img src="{{ url_for('static', filename='images/gloria.png') }}" alt="Top Image 1" class="gloria-logo">
+                    <img src="{{ url_for('static', filename='images/universitat_alacant.png') }}" alt="Top Image 2" class="universidad-logo">
                 </div>
                 <span class="navbar-brand mb-0 h1">
                     Clasificador de Peces
@@ -26,7 +26,7 @@
         </div>
     </nav>
 
-    <div class="container py-5">
+    <div class="container py-3">
         <!-- Main Card -->
         <div class="row justify-content-center">
             <div class="col-lg-8">
@@ -107,23 +107,29 @@
                     </div>
                 </div>
 
-                <!-- Results -->
-                <div id="results" class="results-card card mt-4">
-                    <div class="card-body p-4">
-                        <div class="text-center mb-4">
-                            <h3>Resultados</h3>
-                        </div>
+                <!-- Results Modal -->
+                <div id="results" class="results-modal">
+                    <div class="modal-overlay"></div>
+                    <div class="modal-content">
+                        <button class="modal-close" id="closeModal">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                        <div class="modal-body">
+                            <!-- Imagen del pez -->
+                            <div class="modal-image-container">
+                                <img id="modalImage" src="" alt="Pez analizado" class="modal-image">
+                            </div>
 
-                        <!-- Main Result -->
-                        <div id="mainResult" class="main-result p-4 rounded mb-4"></div>
+                            <!-- Resultado principal -->
+                            <div id="mainResult" class="modal-main-result"></div>
 
-                        <!-- Detailed Info -->
-                        <div id="detailedInfo" class="row g-3"></div>
+                            <!-- Grid de información 2x2 -->
+                            <div id="detailedInfo" class="modal-info-grid"></div>
 
-                        <!-- Probabilities -->
-                        <div class="mt-4">
-                            <h6 class="mb-3">MÉTRICAS</h6>
-                            <div id="probabilities"></div>
+                            <!-- Métricas compactas -->
+                            <div class="modal-metrics">
+                                <div id="probabilities"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -132,11 +138,20 @@
     </div>
 
     <!-- Footer -->
-    <footer class="text-center py-4 mt-5">
-        <div>
-            <img src="{{ url_for('static', filename='images/eut.jpg') }}" alt="Bottom Image 1" class="logo-img">
-            <img src="{{ url_for('static', filename='images/fondos_europeos.jpg') }}" alt="Bottom Image 2" class="logo-img">
-            <img src="{{ url_for('static', filename='images/pablo_de_olivade.jpg') }}" alt="Bottom Image 3" class="logo-img">
+    <footer class="text-center py-4">
+        <!-- Logos para escritorio -->
+        <div class="footer-logos footer-desktop">
+            <img src="{{ url_for('static', filename='images/eut.jpg') }}" alt="EUT" class="footer-logo">
+            <img src="{{ url_for('static', filename='images/fondos_europeos.jpg') }}" alt="Fondos Europeos" class="footer-logo footer-logo-fondos">
+            <img src="{{ url_for('static', filename='images/pablo_de_olivade.jpg') }}" alt="Pablo de Olavide" class="footer-logo">
+        </div>
+        <!-- Logos para móvil (separados) -->
+        <div class="footer-logos footer-mobile">
+            <img src="{{ url_for('static', filename='images/eut.jpg') }}" alt="EUT" class="footer-logo">
+            <img src="{{ url_for('static', filename='images/fondos_europeos1.png') }}" alt="Fondos Europeos 1" class="footer-logo">
+            <img src="{{ url_for('static', filename='images/fondos_europeos2.png') }}" alt="Fondos Europeos 2" class="footer-logo">
+            <img src="{{ url_for('static', filename='images/fondos_europeos3.png') }}" alt="Fondos Europeos 3" class="footer-logo">
+            <img src="{{ url_for('static', filename='images/pablo_de_olivade.jpg') }}" alt="Pablo de Olavide" class="footer-logo">
         </div>
         <p class="text-muted small mb-0 mt-3">
             Clasificación basada en IA
