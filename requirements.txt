@@ -1,8 +1,6 @@
 flask
 flask-cors
-torch
-torchvision
-git+https://github.com/openai/CLIP.git
+tensorflow
 pillow
 numpy
 werkzeug
