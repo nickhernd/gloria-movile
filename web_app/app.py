@@ -36,7 +36,11 @@ def load_model():
     global model
     try:
         print("Cargando modelo MobileNet...")
-        model = keras.models.load_model('student_mobilenet_little.h5')
+        # Construir la ruta absoluta al modelo
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(script_dir, 'student_mobilenet_little.h5')
+        print(f"Buscando modelo en: {model_path}")
+        model = keras.models.load_model(model_path)
         print("Modelo cargado exitosamente")
         print(f"Entrada del modelo: {model.input_shape}")
         print(f"Salidas del modelo: {len(model.outputs)} salidas")
