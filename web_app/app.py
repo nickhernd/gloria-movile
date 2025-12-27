@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import tensorflow as tf
 from tensorflow import keras
@@ -150,10 +150,6 @@ def predict_fish(image_path):
 # Cargar el modelo al iniciar
 with app.app_context():
     load_model()
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/predict', methods=['POST'])
 def predict():
