@@ -1,11 +1,5 @@
-// TODO: Una vez que el backend esté desplegado, actualiza estas URLs con las URLs absolutas del backend.
-// Por ejemplo:
-// const BACKEND_URL = 'https://your-backend-url.com/predict';
-// const REALTIME_URL = 'https://your-backend-url.com/predict_realtime';
-
-// Usar URLs relativas para que funcione tanto en localhost como en red
-const BACKEND_URL = '/predict';
-const REALTIME_URL = '/predict_realtime';
+const BACKEND_URL = 'https://calm-springs-33204.herokuapp.com/predict';
+const REALTIME_URL = 'https://calm-springs-33204.herokuapp.com/predict_realtime';
 
 let videoStream;
 let realtimeInterval = null;
