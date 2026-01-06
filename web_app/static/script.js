@@ -1,9 +1,14 @@
-const BACKEND_URL = 'https://calm-springs-33204.herokuapp.com/predict';
-const REALTIME_URL = 'https://calm-springs-33204.herokuapp.com/predict_realtime';
+const BACKEND_URL = '/predict';
+const REALTIME_URL = '/predict_realtime';
+const QUALITY_URL = '/analyze_quality';
 
 let videoStream;
 let realtimeInterval = null;
 let isRealtimeActive = false;
+let qualityCheckInterval = null;
+let isQualityCheckActive = false;
+let autoCaptureEnabled = false;
+let predictionHistory = [];
 
 // Elementos del DOM
 const imageUpload = document.getElementById('imageUpload');
@@ -34,6 +39,9 @@ window.addEventListener('DOMContentLoaded', () => {
     hideElement(videoFeed);
     hideElement(canvas);
     hideElement(realtimeOverlay);
+
+    // Cargar historial
+    loadHistory();
 });
 
 // Utilidades
@@ -117,14 +125,110 @@ async function classifyImage(imageSource) {
     }
 }
 
+// Agregar predicción al historial
+function addToHistory(data, imageData) {
+    const historyItem = {
+        timestamp: new Date().toISOString(),
+        species: data.species,
+        classification: data.classification,
+        confidence: ((data.species_confidence + data.classification_confidence) / 2 * 100).toFixed(0),
+        imageData: imageData,
+        fullData: data
+    };
+
+    predictionHistory.unshift(historyItem);
+
+    // Limitar a las últimas 10 predicciones
+    if (predictionHistory.length > 10) {
+        predictionHistory.pop();
+    }
+
+    // Guardar en localStorage
+    try {
+        localStorage.setItem('predictionHistory', JSON.stringify(predictionHistory));
+    } catch (e) {
+        console.warn('No se pudo guardar el historial en localStorage:', e);
+    }
+
+    updateHistoryDisplay();
+}
+
+// Cargar historial desde localStorage
+function loadHistory() {
+    try {
+        const stored = localStorage.getItem('predictionHistory');
+        if (stored) {
+            predictionHistory = JSON.parse(stored);
+            updateHistoryDisplay();
+        }
+    } catch (e) {
+        console.warn('No se pudo cargar el historial:', e);
+    }
+}
+
+// Actualizar visualización del historial
+function updateHistoryDisplay() {
+    const historyContainer = document.getElementById('historyContainer');
+    if (!historyContainer) return;
+
+    if (predictionHistory.length === 0) {
+        historyContainer.innerHTML = '<p class="text-muted text-center">No hay predicciones recientes</p>';
+        return;
+    }
+
+    historyContainer.innerHTML = predictionHistory.map((item, index) => `
+        <div class="history-item" onclick="showHistoryItem(${index})">
+            <img src="${item.imageData}" alt="Predicción ${index + 1}" class="history-thumbnail">
+            <div class="history-info">
+                <div class="history-species">${item.species}</div>
+                <div class="history-classification">${item.classification}</div>
+                <div class="history-confidence">${item.confidence}%</div>
+                <div class="history-time">${formatTimestamp(item.timestamp)}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Mostrar item del historial
+function showHistoryItem(index) {
+    const item = predictionHistory[index];
+    if (item) {
+        displayResults(item.fullData);
+        const modalImage = document.getElementById('modalImage');
+        modalImage.src = item.imageData;
+    }
+}
+
+// Formatear timestamp
+function formatTimestamp(isoString) {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'Ahora';
+    if (diffMins < 60) return `Hace ${diffMins} min`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `Hace ${diffHours}h`;
+    return date.toLocaleDateString('es-ES');
+}
+
 // Mostrar resultados
 function displayResults(data) {
     // Mostrar la imagen en el modal
     const modalImage = document.getElementById('modalImage');
+    let imageData;
     if (previewImage.style.display !== 'none' && previewImage.src) {
         modalImage.src = previewImage.src;
+        imageData = previewImage.src;
     } else if (canvas.style.display !== 'none') {
-        modalImage.src = canvas.toDataURL('image/jpeg');
+        imageData = canvas.toDataURL('image/jpeg');
+        modalImage.src = imageData;
+    }
+
+    // Agregar al historial
+    if (imageData) {
+        addToHistory(data, imageData);
     }
 
     // Resultado principal compacto
@@ -252,8 +356,18 @@ cameraButton.addEventListener('click', async () => {
         showElement(classifyButton);
         showElement(realtimeButton);
 
+        // Mostrar botón de auto-captura
+        const autoCaptureBtn = document.getElementById('autoCaptureButton');
+        if (autoCaptureBtn) {
+            showElement(autoCaptureBtn);
+        }
+
+        // Iniciar análisis de calidad automáticamente
+        startQualityCheck();
+
         classifyButton.onclick = () => {
             stopRealtimeDetection(); // Detener detección en tiempo real si está activa
+            stopQualityCheck(); // Detener análisis de calidad
             const context = canvas.getContext('2d');
             canvas.width = videoFeed.videoWidth;
             canvas.height = videoFeed.videoHeight;
@@ -273,7 +387,146 @@ cameraButton.addEventListener('click', async () => {
     }
 });
 
+// Iniciar análisis de calidad
+function startQualityCheck() {
+    if (isQualityCheckActive) return;
+
+    console.log('Iniciando análisis de calidad');
+    isQualityCheckActive = true;
+
+    const startCheck = () => {
+        if (videoFeed.videoWidth && videoFeed.videoHeight) {
+            console.log('Video listo, iniciando análisis de calidad...');
+            showElement(realtimeOverlay);
+            analyzeQualityFrame();
+            qualityCheckInterval = setInterval(analyzeQualityFrame, 1000);
+        } else {
+            setTimeout(startCheck, 200);
+        }
+    };
+
+    startCheck();
+}
+
+// Detener análisis de calidad
+function stopQualityCheck() {
+    if (!isQualityCheckActive) return;
+
+    isQualityCheckActive = false;
+
+    if (qualityCheckInterval) {
+        clearInterval(qualityCheckInterval);
+        qualityCheckInterval = null;
+    }
+
+    realtimeOverlay.classList.remove('active');
+    clearRealtimeOverlay();
+}
+
 // ======= DETECCIÓN EN TIEMPO REAL =======
+
+// Analizar calidad de imagen en tiempo real
+async function analyzeQualityFrame() {
+    if (!videoFeed.videoWidth || !videoFeed.videoHeight) {
+        return;
+    }
+
+    try {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = videoFeed.videoWidth;
+        tempCanvas.height = videoFeed.videoHeight;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(videoFeed, 0, 0);
+
+        const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg', 0.8));
+
+        const formData = new FormData();
+        formData.append('image', blob, 'frame.jpg');
+
+        const response = await fetch(QUALITY_URL, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            updateQualityFeedback(data);
+
+            // Auto-captura si está habilitada y la calidad es buena
+            if (autoCaptureEnabled && data.is_good_quality && data.quality_score >= 80) {
+                console.log('Auto-captura activada - Buena calidad detectada');
+                autoCaptureEnabled = false; // Desactivar para evitar capturas múltiples
+                setTimeout(() => {
+                    classifyButton.click();
+                }, 500);
+            }
+        }
+    } catch (err) {
+        console.error('Error en análisis de calidad:', err);
+    }
+}
+
+// Actualizar feedback visual de calidad
+function updateQualityFeedback(qualityData) {
+    const overlayContent = realtimeOverlay.querySelector('.overlay-content');
+
+    if (!overlayContent) return;
+
+    const qualityColor = qualityData.quality_score >= 80 ? 'success' :
+                        qualityData.quality_score >= 60 ? 'warning' : 'danger';
+
+    const roiStatus = qualityData.roi_detected ?
+        '<i class="bi bi-check-circle-fill text-success"></i> Objeto detectado' :
+        '<i class="bi bi-x-circle-fill text-danger"></i> No se detecta objeto';
+
+    let issuesHTML = '';
+    if (qualityData.suggestions && qualityData.suggestions.length > 0) {
+        issuesHTML = `
+            <div class="quality-suggestions">
+                <div class="suggestions-title">Sugerencias:</div>
+                ${qualityData.suggestions.map(s => `<div class="suggestion-item"><i class="bi bi-lightbulb"></i> ${s}</div>`).join('')}
+            </div>
+        `;
+    }
+
+    overlayContent.innerHTML = `
+        <div class="quality-feedback">
+            <div class="quality-score-container">
+                <div class="quality-score ${qualityColor}">
+                    <div class="score-value">${qualityData.quality_score.toFixed(0)}</div>
+                    <div class="score-label">Calidad</div>
+                </div>
+            </div>
+            <div class="quality-status">
+                <div class="status-item">${roiStatus}</div>
+                ${qualityData.is_good_quality ?
+                    '<div class="status-item text-success"><i class="bi bi-camera-fill"></i> Lista para capturar</div>' :
+                    '<div class="status-item text-warning"><i class="bi bi-exclamation-triangle-fill"></i> Ajusta la imagen</div>'
+                }
+            </div>
+            ${issuesHTML}
+            ${qualityData.roi_bbox ? drawROIBox(qualityData.roi_bbox) : ''}
+        </div>
+    `;
+
+    realtimeOverlay.classList.add('active');
+}
+
+// Dibujar ROI box overlay
+function drawROIBox(bbox) {
+    return `
+        <div class="roi-indicator" style="
+            position: absolute;
+            left: ${(bbox.x / videoFeed.videoWidth) * 100}%;
+            top: ${(bbox.y / videoFeed.videoHeight) * 100}%;
+            width: ${(bbox.width / videoFeed.videoWidth) * 100}%;
+            height: ${(bbox.height / videoFeed.videoHeight) * 100}%;
+            border: 3px solid #00ff00;
+            box-shadow: 0 0 10px rgba(0,255,0,0.5);
+        "></div>
+    `;
+}
 
 // Capturar frame del video y clasificar
 async function captureAndClassifyFrame() {
@@ -539,3 +792,19 @@ document.addEventListener('keydown', (e) => {
         closeModal();
     }
 });
+
+// Event listener para auto-captura
+const autoCaptureButton = document.getElementById('autoCaptureButton');
+if (autoCaptureButton) {
+    autoCaptureButton.addEventListener('click', () => {
+        if (autoCaptureEnabled) {
+            autoCaptureEnabled = false;
+            autoCaptureButton.classList.remove('active');
+            autoCaptureButton.innerHTML = '<i class="bi bi-magic"></i> Auto-Captura';
+        } else {
+            autoCaptureEnabled = true;
+            autoCaptureButton.classList.add('active');
+            autoCaptureButton.innerHTML = '<i class="bi bi-magic"></i> Auto-Captura (ON)';
+        }
+    });
+}
