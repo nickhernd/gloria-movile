@@ -141,3 +141,15 @@ cython_debug/
 # Uploaded files
 uploads/
 web_app/uploads/
+
+# Node modules
+node_modules/
+gloria-worker/node_modules/
+
+# Package lock files
+package-lock.json
+gloria-worker/package-lock.json
+
+# Build outputs
+gloria-worker/dist/
+gloria-worker/.wrangler/
