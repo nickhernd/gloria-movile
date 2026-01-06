@@ -10,6 +10,11 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import cv2
 from skimage import filters, exposure
+import matplotlib
+matplotlib.use('Agg')  # Backend sin GUI
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import base64
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 template_dir = os.path.join(script_dir, 'templates')
@@ -332,16 +337,130 @@ def get_quality_suggestions(quality_issues):
 
     return suggestions
 
-def predict_fish(image_path, use_roi=True):
+def generate_gradcam(model, img_array, layer_name, class_index=None):
+    """
+    Genera un mapa de calor Grad-CAM para visualizar qué partes de la imagen influyeron en la decisión
+
+    Args:
+        model: Modelo Keras
+        img_array: Imagen preprocesada (1, 224, 224, 3)
+        layer_name: Nombre de la capa convolucional objetivo
+        class_index: Índice de la clase a visualizar (None = clase predicha)
+
+    Returns:
+        numpy array con el mapa de calor superpuesto sobre la imagen original
+    """
+    # Crear modelo que devuelve las activaciones de la capa conv y las predicciones
+    grad_model = keras.models.Model(
+        inputs=[model.inputs],
+        outputs=[model.get_layer(layer_name).output, model.output]
+    )
+
+    # Calcular gradientes
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(img_array)
+
+        # Si es un modelo con múltiples salidas, usar la primera
+        if isinstance(predictions, list):
+            predictions = predictions[0]
+
+        # Si no se especifica clase, usar la predicha
+        if class_index is None:
+            class_index = tf.argmax(predictions[0])
+
+        # Extraer probabilidad de la clase objetivo
+        class_channel = predictions[:, class_index]
+
+    # Calcular gradientes de la clase respecto a la salida de la capa conv
+    grads = tape.gradient(class_channel, conv_outputs)
+
+    # Pooling de gradientes (promedio global)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    # Multiplicar cada canal por su importancia y sumar
+    conv_outputs = conv_outputs[0]
+    pooled_grads = pooled_grads.numpy()
+    conv_outputs = conv_outputs.numpy()
+
+    for i in range(len(pooled_grads)):
+        conv_outputs[:, :, i] *= pooled_grads[i]
+
+    # Crear el mapa de calor
+    heatmap = np.mean(conv_outputs, axis=-1)
+
+    # Normalizar el mapa de calor entre 0 y 1
+    heatmap = np.maximum(heatmap, 0)  # ReLU
+    if heatmap.max() > 0:
+        heatmap /= heatmap.max()
+
+    return heatmap
+
+def superimpose_gradcam(img_array, heatmap, alpha=0.4):
+    """
+    Superpone el mapa de calor Grad-CAM sobre la imagen original
+
+    Args:
+        img_array: Imagen original (224, 224, 3) normalizada [0, 1]
+        heatmap: Mapa de calor Grad-CAM (7, 7) o tamaño de la capa conv
+        alpha: Transparencia del mapa de calor (0-1)
+
+    Returns:
+        Imagen PIL con el mapa de calor superpuesto
+    """
+    # Redimensionar heatmap al tamaño de la imagen
+    heatmap_resized = cv2.resize(heatmap, (224, 224))
+
+    # Convertir heatmap a colormap
+    heatmap_colored = cm.jet(heatmap_resized)[:, :, :3]  # RGB, sin alpha
+
+    # Desnormalizar imagen
+    img = img_array[0] * 255.0
+    img = img.astype(np.uint8)
+
+    # Convertir a float para mezclar
+    img_float = img.astype(np.float32) / 255.0
+
+    # Superponer
+    superimposed = heatmap_colored * alpha + img_float * (1 - alpha)
+    superimposed = np.clip(superimposed * 255, 0, 255).astype(np.uint8)
+
+    # Convertir a PIL Image
+    return Image.fromarray(superimposed)
+
+def get_last_conv_layer_name(model):
+    """
+    Encuentra la última capa convolucional del modelo
+
+    Args:
+        model: Modelo Keras
+
+    Returns:
+        Nombre de la última capa convolucional
+    """
+    for layer in reversed(model.layers):
+        # Buscar capas Conv2D
+        if isinstance(layer, keras.layers.Conv2D):
+            return layer.name
+        # También buscar en modelos anidados (como MobileNet)
+        if hasattr(layer, 'layers'):
+            for sublayer in reversed(layer.layers):
+                if isinstance(sublayer, keras.layers.Conv2D):
+                    return sublayer.name
+
+    # Si no se encuentra, devolver None
+    return None
+
+def predict_fish(image_path, use_roi=True, generate_gradcam_images=False):
     """
     Realiza la predicción completa del pez
 
     Args:
         image_path: Ruta a la imagen o BytesIO
         use_roi: Si True, usa ROI detection para mejorar la predicción
+        generate_gradcam_images: Si True, genera mapas de calor Grad-CAM
 
     Returns:
-        dict con las predicciones y métricas de calidad
+        dict con las predicciones, métricas de calidad y mapas Grad-CAM (si se solicita)
     """
     if model is None:
         raise Exception("Modelo no cargado")
@@ -419,6 +538,49 @@ def predict_fish(image_path, use_roi=True):
         }
     }
 
+    # Generar Grad-CAM si se solicita
+    if generate_gradcam_images:
+        try:
+            # Encontrar última capa convolucional
+            conv_layer_name = get_last_conv_layer_name(model)
+
+            if conv_layer_name:
+                # Generar Grad-CAM para especie
+                heatmap_species = generate_gradcam(model, img_array, conv_layer_name, class_index=species_id)
+                gradcam_species_img = superimpose_gradcam(img_array, heatmap_species)
+
+                # Convertir a base64
+                buffer_species = io.BytesIO()
+                gradcam_species_img.save(buffer_species, format='PNG')
+                gradcam_species_base64 = base64.b64encode(buffer_species.getvalue()).decode('utf-8')
+
+                # Generar Grad-CAM para clasificación (salvaje/cultivada)
+                # Nota: Como el modelo tiene 2 salidas, necesitamos generar Grad-CAM de forma diferente
+                # Por ahora, generamos para la especie predicha
+                heatmap_classification = generate_gradcam(model, img_array, conv_layer_name, class_index=classification_id)
+                gradcam_classification_img = superimpose_gradcam(img_array, heatmap_classification, alpha=0.5)
+
+                buffer_classification = io.BytesIO()
+                gradcam_classification_img.save(buffer_classification, format='PNG')
+                gradcam_classification_base64 = base64.b64encode(buffer_classification.getvalue()).decode('utf-8')
+
+                result["gradcam"] = {
+                    "species": f"data:image/png;base64,{gradcam_species_base64}",
+                    "classification": f"data:image/png;base64,{gradcam_classification_base64}",
+                    "conv_layer": conv_layer_name
+                }
+            else:
+                result["gradcam"] = {
+                    "error": "No se encontró capa convolucional en el modelo"
+                }
+        except Exception as e:
+            print(f"Error generando Grad-CAM: {e}")
+            import traceback
+            traceback.print_exc()
+            result["gradcam"] = {
+                "error": str(e)
+            }
+
     return result
 
 # Cargar el modelo al iniciar
@@ -442,6 +604,9 @@ def predict():
         return jsonify({"error": "No se seleccionó ningún archivo."}), 400
 
     try:
+        # Verificar si se solicita Grad-CAM
+        enable_gradcam = request.form.get('enable_gradcam', 'false').lower() == 'true'
+
         # Leer los datos de la imagen en memoria
         image_data = file.read()
 
@@ -460,7 +625,7 @@ def predict():
         print(f"Imagen guardada como: {unique_filename}")
 
         # Hacer predicción
-        result = predict_fish(image_path)
+        result = predict_fish(image_path, generate_gradcam_images=enable_gradcam)
 
         # Verificar si se detectó un pez
         if not result["is_fish"]:

@@ -1,17 +1,19 @@
-/* Variables de colores minimalistas */
+/* Variables de colores ultra minimalistas */
 :root {
-    --primary: #2563eb;
-    --primary-dark: #1e40af;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --gray-50: #f9fafb;
-    --gray-100: #f3f4f6;
-    --gray-200: #e5e7eb;
-    --gray-300: #d1d5db;
-    --gray-600: #4b5563;
-    --gray-900: #111827;
-    --border-radius: 8px;
+    --primary: #000000;
+    --primary-light: #333333;
+    --success: #000000;
+    --warning: #000000;
+    --danger: #000000;
+    --gray-50: #fafafa;
+    --gray-100: #f5f5f5;
+    --gray-200: #eeeeee;
+    --gray-300: #e0e0e0;
+    --gray-400: #bdbdbd;
+    --gray-600: #757575;
+    --gray-900: #212121;
+    --border-radius: 0px;
+    --spacing: 1.5rem;
 }
 
 /* Reset y base */
@@ -22,23 +24,43 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
-    background: var(--gray-50);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: white;
     color: var(--gray-900);
-    line-height: 1.6;
+    line-height: 1.7;
+    font-weight: 400;
 }
 
-/* Navbar minimalista */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 400;
+    letter-spacing: 0.02em;
+}
+
+h2 {
+    font-size: 1.5rem;
+}
+
+h3 {
+    font-size: 1.25rem;
+}
+
+p {
+    line-height: 1.8;
+}
+
+/* Navbar ultra minimalista */
 .navbar {
     background: white !important;
     border-bottom: 1px solid var(--gray-200);
-    padding: 1rem 0;
+    padding: var(--spacing) 0;
 }
 
 .navbar-brand {
-    font-weight: 600;
-    font-size: 1.25rem;
+    font-weight: 400;
+    font-size: 1rem;
     color: var(--gray-900) !important;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
 
 .badge {
@@ -55,24 +77,24 @@ body {
     max-width: 800px;
 }
 
-/* Cards minimalistas */
+/* Cards ultra minimalistas */
 .main-card {
-    background: white;
+    background: var(--gray-50);
     border: 1px solid var(--gray-200);
     border-radius: var(--border-radius);
-    transition: border-color 0.2s ease;
+    transition: none;
 }
 
 .main-card:hover {
-    border-color: var(--gray-300);
+    border-color: var(--gray-200);
 }
 
 .card-body {
-    padding: 2.5rem;
+    padding: 3rem;
 }
 
 .status-card {
-    background: white;
+    background: var(--gray-50);
     border: 1px solid var(--gray-200);
     border-radius: var(--border-radius);
     display: none;
@@ -115,7 +137,8 @@ body {
     width: 90%;
     max-height: 90vh;
     overflow-y: auto;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: none;
+    border: 1px solid var(--gray-200);
     animation: slideUp 0.3s ease;
 }
 
@@ -295,34 +318,37 @@ h6 {
 }
 
 .btn-action {
-    border: 1.5px solid var(--gray-300);
-    background: white;
+    border: 1px solid var(--gray-900);
+    background: transparent;
     color: var(--gray-900);
+    font-weight: 400;
 }
 
 .btn-action:hover {
-    border-color: var(--primary);
-    background: var(--gray-50);
-    color: var(--primary);
-}
-
-.btn-primary {
-    background: var(--primary);
+    border-color: var(--gray-900);
+    background: var(--gray-900);
     color: white;
 }
 
+.btn-primary {
+    background: var(--gray-900);
+    color: white;
+    border: 1px solid var(--gray-900);
+}
+
 .btn-primary:hover {
-    background: var(--primary-dark);
+    background: var(--gray-600);
+    border-color: var(--gray-600);
 }
 
 .btn-outline-primary {
-    border: 1.5px solid var(--primary);
-    color: var(--primary);
+    border: 1px solid var(--gray-900);
+    color: var(--gray-900);
     background: transparent;
 }
 
 .btn-outline-primary:hover {
-    background: var(--primary);
+    background: var(--gray-900);
     color: white;
 }
 
@@ -330,39 +356,47 @@ h6 {
     display: none;
     background: var(--gray-900);
     color: white;
-    padding: 0.875rem 2rem;
-    font-weight: 500;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    margin-right: 0.5rem;
+    padding: 1rem 2.5rem;
+    font-weight: 400;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--gray-900);
+    transition: opacity 0.2s ease;
+    margin-right: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.875rem;
 }
 
 .classify-btn:hover {
-    background: var(--gray-600);
-    transform: translateY(-1px);
+    opacity: 0.8;
 }
 
 .realtime-btn {
     display: none;
-    background: var(--primary);
-    color: white;
-    padding: 0.875rem 1.5rem;
-    font-weight: 500;
-    border-radius: 6px;
+    background: transparent;
+    color: var(--gray-900);
+    padding: 1rem 2rem;
+    font-weight: 400;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--gray-900);
     transition: all 0.2s ease;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.875rem;
 }
 
 .realtime-btn:hover {
-    background: var(--primary-dark);
-    transform: translateY(-1px);
+    background: var(--gray-900);
+    color: white;
 }
 
 .realtime-btn.active {
-    background: var(--danger);
+    background: var(--gray-900);
+    color: white;
 }
 
 .realtime-btn.active:hover {
-    background: #dc2626;
+    opacity: 0.8;
 }
 
 /* Preview de imagen */
@@ -410,7 +444,7 @@ h6 {
     display: none;
     pointer-events: none;
     border-radius: var(--border-radius);
-    background: linear-gradient(to bottom, rgba(0,0,0,0.3), rgba(0,0,0,0.05));
+    background: transparent;
     z-index: 100;
 }
 
@@ -431,23 +465,23 @@ h6 {
 
 /* Estados de búsqueda y error */
 .overlay-status {
-    background: rgba(17, 24, 39, 0.95);
-    backdrop-filter: blur(15px);
-    color: white;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: none;
+    color: var(--gray-900);
     padding: 1.25rem;
-    border-radius: 8px;
+    border-radius: 0px;
     text-align: center;
-    border: 2px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--gray-900);
 }
 
 .overlay-status.searching {
-    background: rgba(37, 99, 235, 0.95);
-    border-color: rgba(37, 99, 235, 0.3);
+    background: rgba(255, 255, 255, 0.98);
+    border-color: var(--gray-900);
 }
 
 .overlay-status.error {
-    background: rgba(239, 68, 68, 0.95);
-    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(255, 255, 255, 0.98);
+    border-color: var(--gray-900);
 }
 
 .overlay-status i {
@@ -737,13 +771,14 @@ h6 {
 
 /* Footer minimalista */
 footer {
-    margin-top: 4rem;
-    padding: 2rem 0;
+    margin-top: 6rem;
+    padding: 3rem 0 2rem;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 1rem;
+    gap: 2rem;
+    border-top: 1px solid var(--gray-200);
 }
 
 .footer-logos {
@@ -751,22 +786,25 @@ footer {
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
-    gap: 1.5rem;
+    gap: 2rem;
+    opacity: 0.5;
 }
 
 .footer-logo {
-    height: 60px;
+    height: 30px;
     width: auto;
     object-fit: contain;
 }
 
 footer .footer-logo-fondos {
-    height: 140px !important;
+    height: 60px !important;
     width: auto;
 }
 
 footer .text-muted {
-    color: var(--gray-600) !important;
+    color: var(--gray-400) !important;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
 }
 
 /* Mostrar solo escritorio por defecto */
@@ -779,17 +817,19 @@ footer .text-muted {
 }
 
 .gloria-logo {
-    height: 50px;
+    height: 32px;
     width: auto;
     object-fit: contain;
-    margin: 0 2px;
+    margin: 0 1rem;
+    opacity: 0.7;
 }
 
 .universidad-logo {
-    height: 85px;
+    height: 40px;
     width: auto;
     object-fit: contain;
-    margin: 0 2px;
+    margin: 0 1rem;
+    opacity: 0.7;
 }
 
 /* Iconos */
@@ -1194,9 +1234,7 @@ button, .btn, a, .card, .info-card, .progress-bar {
 }
 
 .history-item:hover {
-    border-color: var(--primary);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border-color: var(--gray-900);
 }
 
 .history-thumbnail {
@@ -1237,33 +1275,35 @@ button, .btn, a, .card, .info-card, .progress-bar {
 
 /* Auto-Captura Button */
 .autocapture-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    transition: all 0.3s ease;
+    background: transparent;
+    color: var(--gray-900);
+    border: 1px solid var(--gray-900);
+    font-weight: 400;
+    padding: 1rem 2rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
 }
 
 .autocapture-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    background: var(--gray-900);
+    color: white;
 }
 
 .autocapture-btn.active {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    animation: pulse 2s infinite;
+    background: var(--gray-900);
+    color: white;
 }
 
-@keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-    50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-}
+/* Animación pulse removida para estilo minimalista */
 
 /* Feedback de Calidad */
 .quality-feedback {
-    background: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.98);
     border-radius: var(--border-radius);
     padding: 1.5rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    border: 1px solid var(--gray-300);
 }
 
 .quality-score-container {
@@ -1285,18 +1325,18 @@ button, .btn, a, .card, .info-card, .progress-bar {
 }
 
 .quality-score.success {
-    border-color: var(--success);
-    background: rgba(16, 185, 129, 0.1);
+    border-color: var(--gray-900);
+    background: var(--gray-50);
 }
 
 .quality-score.warning {
-    border-color: var(--warning);
-    background: rgba(245, 158, 11, 0.1);
+    border-color: var(--gray-600);
+    background: var(--gray-50);
 }
 
 .quality-score.danger {
-    border-color: var(--danger);
-    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--gray-400);
+    background: var(--gray-50);
 }
 
 .score-value {
@@ -1333,9 +1373,9 @@ button, .btn, a, .card, .info-card, .progress-bar {
 .quality-suggestions {
     margin-top: 1rem;
     padding: 1rem;
-    background: rgba(245, 158, 11, 0.1);
-    border-left: 3px solid var(--warning);
-    border-radius: 4px;
+    background: var(--gray-50);
+    border-left: 2px solid var(--gray-900);
+    border-radius: 0px;
 }
 
 .suggestions-title {
@@ -1359,22 +1399,13 @@ button, .btn, a, .card, .info-card, .progress-bar {
     flex-shrink: 0;
 }
 
-/* ROI Indicator */
+/* ROI Indicator - minimalista */
 .roi-indicator {
     pointer-events: none;
-    border-radius: 8px;
-    animation: roiPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes roiPulse {
-    0%, 100% {
-        border-color: rgba(0, 255, 0, 0.8);
-        box-shadow: 0 0 10px rgba(0,255,0,0.5);
-    }
-    50% {
-        border-color: rgba(0, 255, 0, 1);
-        box-shadow: 0 0 20px rgba(0,255,0,0.8);
-    }
+    border-radius: 0px;
+    animation: none;
+    border: 2px solid var(--gray-900) !important;
+    box-shadow: none !important;
 }
 
 /* Guías Visuales */
@@ -1471,5 +1502,74 @@ button, .btn, a, .card, .info-card, .progress-bar {
     .autocapture-btn {
         font-size: 0.9rem;
         padding: 0.5rem 1rem;
+    }
+}
+
+/* ========== GRAD-CAM (EXPLICABILIDAD) ========== */
+
+/* Toggle de Grad-CAM */
+#gradcamToggle {
+    cursor: pointer;
+    width: 3rem;
+    height: 1.5rem;
+}
+
+#gradcamToggle:checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+.form-check-label {
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Contenedor de Grad-CAM */
+#gradcamSection {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background: var(--gray-50);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--gray-200);
+}
+
+#gradcamSection h5 {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.gradcam-container {
+    background: white;
+    padding: 1rem;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--gray-200);
+    transition: none;
+}
+
+.gradcam-container:hover {
+    border-color: var(--gray-300);
+}
+
+.gradcam-container img {
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 2px solid var(--gray-200);
+}
+
+.gradcam-container h6 {
+    color: var(--gray-900);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #gradcamSection {
+        padding: 1rem;
+    }
+
+    .gradcam-container {
+        padding: 0.75rem;
     }
 }

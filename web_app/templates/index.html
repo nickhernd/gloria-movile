@@ -83,6 +83,17 @@
                                 Auto-Captura
                             </button>
                         </div>
+
+                        <!-- Grad-CAM Toggle -->
+                        <div class="text-center mt-3">
+                            <div class="form-check form-switch d-inline-block">
+                                <input class="form-check-input" type="checkbox" id="gradcamToggle">
+                                <label class="form-check-label" for="gradcamToggle">
+                                    <i class="bi bi-binoculars"></i> Mostrar Explicabilidad (Grad-CAM)
+                                </label>
+                            </div>
+                            <small class="d-block text-muted mt-1">Visualiza qué partes de la imagen influyeron en la decisión del modelo</small>
+                        </div>
                     </div>
                 </div>
 
@@ -144,6 +155,9 @@
                             <div class="modal-metrics">
                                 <div id="probabilities"></div>
                             </div>
+
+                            <!-- Grad-CAM Section -->
+                            <div id="gradcamSection" style="display: none;"></div>
                         </div>
                     </div>
                 </div>

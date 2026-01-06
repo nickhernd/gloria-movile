@@ -103,6 +103,12 @@ async function classifyImage(imageSource) {
         const formData = new FormData();
         formData.append('image', blob, 'image.jpg');
 
+        // Añadir parámetro de Grad-CAM si está habilitado
+        const gradcamToggle = document.getElementById('gradcamToggle');
+        if (gradcamToggle && gradcamToggle.checked) {
+            formData.append('enable_gradcam', 'true');
+        }
+
         const response = await fetch(BACKEND_URL, {
             method: 'POST',
             body: formData,
@@ -317,6 +323,37 @@ function displayResults(data) {
             </div>
         </div>
     `;
+
+    // Mostrar Grad-CAM si está disponible
+    if (data.gradcam && !data.gradcam.error) {
+        const gradcamSection = document.getElementById('gradcamSection');
+        if (gradcamSection) {
+            gradcamSection.style.display = 'block';
+            gradcamSection.innerHTML = `
+                <h5 class="mb-3 mt-4">
+                    <i class="bi bi-binoculars"></i> Explicabilidad del Modelo (Grad-CAM)
+                </h5>
+                <p class="text-muted small">Las áreas rojas indican las zonas que más influyeron en la decisión del modelo.</p>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <div class="gradcam-container">
+                            <h6 class="text-center mb-2">Especie: ${data.species}</h6>
+                            <img src="${data.gradcam.species}" alt="Grad-CAM Especie" class="img-fluid rounded">
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <div class="gradcam-container">
+                            <h6 class="text-center mb-2">Clasificación: ${data.classification}</h6>
+                            <img src="${data.gradcam.classification}" alt="Grad-CAM Clasificación" class="img-fluid rounded">
+                        </div>
+                    </div>
+                </div>
+                <p class="text-muted small text-center">Capa convolucional: ${data.gradcam.conv_layer}</p>
+            `;
+        }
+    } else if (data.gradcam && data.gradcam.error) {
+        console.warn('Error en Grad-CAM:', data.gradcam.error);
+    }
 
     // Scroll a resultados
     resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
