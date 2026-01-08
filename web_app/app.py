@@ -1,15 +1,26 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import torch
-import clip
+import tensorflow as tf
+from tensorflow import keras
 import numpy as np
 from PIL import Image
 import io
 import os
 from datetime import datetime
 from werkzeug.utils import secure_filename
+import cv2
+from skimage import filters, exposure
+import matplotlib
+matplotlib.use('Agg')  # Backend sin GUI
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import base64
 
-app = Flask(__name__)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+template_dir = os.path.join(script_dir, 'templates')
+static_dir = os.path.join(script_dir, 'static')
+
+app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app)
 
 # Carpeta para guardar las imágenes subidas
@@ -17,219 +28,595 @@ UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-# Configuración de CLIP
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# Modelo global
 model = None
-preprocess = None
 
-# Definición de clases de texto para cada especie
-# DORADA (Sparus aurata / S_AURATA)
-TEXT_LABELS_DORADA = [
-    "a close-up of a fish with a uniform gray color that transitions to a white ventral side, an oval body and the mouth is slightly tilted upwards, the lateral fins are close to the body and small,",  # Cultivada
-    "a close-up of a fish with a straight body, the color transitions from a darker upper side to a white ventral side and in which the mouth follows direction of the main axis of the body, the dorsal fin is symmetrical"  # Salvaje
-]
-
-# LUBINA (Dicentrarchus labrax / D_LABRAX)
-TEXT_LABELS_LUBINA = [
-    "a close-up of a dark grey fish with a curved bottom, the lateral fins are close to the body and small",  # Cultivada
-    "a close-up of a fish with a flat bottom and in mouth follows the direction of the main axis of the body, the lateral fins separated from the body and oriented slightly backward and the dorsal fin is symmetrical"  # Salvaje
-]
-
-# Labels para validar que hay un pez
-VALIDATION_LABELS = [
-    "a close-up photo of a fish",
-    "a photo without any fish, an empty photo, no fish present"
-]
-
-# Labels para detectar tipo de pez con características distintivas
-SPECIES_LABELS = [
-    "a photo of a dorada fish with oval rounded body, silver grey color with golden spots near eyes, steep forehead profile, sparus aurata gilthead seabream",
-    "a photo of a sea bass fish with elongated streamlined body, dark silver grey color, straight head profile, prominent jaw, dicentrarchus labrax lubina"
-]
+# Nombres de clases
+SPECIES_NAMES = {
+    0: "Dorada",
+    1: "Lubina",
+    2: "Otro"
+}
 
 CLASS_NAMES = {
     0: "Cultivada",
     1: "Salvaje"
 }
 
-SPECIES_NAMES = {
-    0: "Dorada",
-    1: "Lubina"
-}
+# Threshold de confianza mínima
+CONFIDENCE_THRESHOLD = 0.85
 
 def load_model():
-    """Carga el modelo CLIP"""
-    global model, preprocess
+    """Carga el modelo MobileNetV2 de 3 clases"""
+    global model
     try:
-        print(f"Cargando modelo CLIP en dispositivo: {device}")
-        model, preprocess = clip.load('ViT-B/32', device)
-        print("Modelo CLIP cargado exitosamente")
+        print("Cargando modelo MobileNetV2 (3 clases)...")
+        # Construir la ruta absoluta al modelo
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(script_dir)
+        model_path = os.path.join(parent_dir, 'model', 'mobilenetv2_3clases_finetuned.h5')
+        print(f"Buscando modelo en: {model_path}")
+        model = keras.models.load_model(model_path)
+        print("Modelo cargado exitosamente")
+        print(f"Entrada del modelo: {model.input_shape}")
+        print(f"Salidas del modelo: {len(model.outputs)} salidas")
     except Exception as e:
-        print(f"Error al cargar el modelo CLIP: {e}")
+        print(f"Error al cargar el modelo: {e}")
         model = None
 
-def validate_fish_presence(image_path):
+def preprocess_image(image_path):
     """
-    Valida que haya un pez en la imagen
-
-    Returns:
-        tuple: (is_fish_present, confidence)
-    """
-    if model is None:
-        raise Exception("Modelo no cargado")
-
-    # Cargar y preprocesar imagen
-    image = Image.open(image_path).convert('RGB')
-    image_input = preprocess(image).unsqueeze(0).to(device)
-
-    # Tokenizar textos de validación
-    text_tokens = clip.tokenize(VALIDATION_LABELS).to(device)
-
-    with torch.no_grad():
-        image_features = model.encode_image(image_input)
-        text_features = model.encode_text(text_tokens)
-
-        # Normalizar
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-
-        # Calcular similaridad
-        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-
-    probs = similarity[0].cpu().numpy()
-    fish_confidence = float(probs[0])
-
-    # Si la confianza de que hay un pez es mayor al 50%, es válido
-    return fish_confidence > 0.5, fish_confidence
-
-def detect_species(image_path):
-    """
-    Detecta automáticamente si es dorada o lubina usando ensemble de prompts
-
-    Returns:
-        tuple: (species_name, species_id, confidence)
-    """
-    if model is None:
-        raise Exception("Modelo no cargado")
-
-    # Cargar y preprocesar imagen
-    image = Image.open(image_path).convert('RGB')
-    image_input = preprocess(image).unsqueeze(0).to(device)
-
-    # Múltiples prompts por especie para mejor detección (ensemble)
-    dorada_prompts = [
-        "a photo of a dorada fish with oval rounded body, silver grey color with golden spots near eyes, steep forehead profile, sparus aurata gilthead seabream",
-        "a gilthead sea bream fish with rounded oval shape and golden markings",
-        "sparus aurata dorada with compact oval body shape"
-    ]
-
-    lubina_prompts = [
-        "a photo of a sea bass fish with elongated streamlined body, dark silver grey color, straight head profile, prominent jaw, dicentrarchus labrax lubina",
-        "a european sea bass with long streamlined body and prominent lower jaw",
-        "dicentrarchus labrax lubina with elongated torpedo-shaped body"
-    ]
-
-    # Combinar todos los prompts
-    all_prompts = dorada_prompts + lubina_prompts
-    text_tokens = clip.tokenize(all_prompts).to(device)
-
-    with torch.no_grad():
-        image_features = model.encode_image(image_input)
-        text_features = model.encode_text(text_tokens)
-
-        # Normalizar
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-
-        # Calcular similaridad
-        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-
-    probs = similarity[0].cpu().numpy()
-
-    # Promediar las probabilidades de cada especie (ensemble)
-    num_dorada_prompts = len(dorada_prompts)
-    num_lubina_prompts = len(lubina_prompts)
-
-    dorada_prob = np.mean(probs[:num_dorada_prompts])
-    lubina_prob = np.mean(probs[num_dorada_prompts:])
-
-    # Normalizar probabilidades
-    total = dorada_prob + lubina_prob
-    dorada_prob_norm = dorada_prob / total
-    lubina_prob_norm = lubina_prob / total
-
-    # Seleccionar especie con mayor probabilidad
-    if dorada_prob_norm > lubina_prob_norm:
-        species_id = 0
-        confidence = float(dorada_prob_norm)
-    else:
-        species_id = 1
-        confidence = float(lubina_prob_norm)
-
-    print(f"Detección de especie - Dorada: {dorada_prob_norm:.3f}, Lubina: {lubina_prob_norm:.3f}")
-
-    return SPECIES_NAMES[species_id], species_id, confidence
-
-def classify_fish(image_path, species_id):
-    """
-    Clasifica si el pez es cultivado o salvaje
+    Preprocesa la imagen para el modelo MobileNet
 
     Args:
-        image_path: Ruta a la imagen
-        species_id: 0 para Dorada, 1 para Lubina
+        image_path: Ruta a la imagen o objeto BytesIO
 
     Returns:
-        dict con clase predicha, confianza y probabilidades
+        numpy array con la imagen preprocesada
+    """
+    # Cargar imagen
+    if isinstance(image_path, (str, bytes, os.PathLike)):
+        img = Image.open(image_path)
+    else:
+        # Es un BytesIO
+        img = Image.open(image_path)
+
+    # Convertir a RGB si es necesario
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    # Redimensionar a 224x224
+    img = img.resize((224, 224), Image.BILINEAR)
+
+    # Convertir a array numpy
+    img_array = np.array(img, dtype=np.float32)
+
+    # Normalizar a [0, 1]
+    img_array = img_array / 255.0
+
+    # Expandir dimensiones para batch
+    img_array = np.expand_dims(img_array, axis=0)
+
+    return img_array
+
+def detect_blur(image_array):
+    """
+    Detecta si la imagen está borrosa usando la varianza del Laplaciano
+
+    Args:
+        image_array: numpy array de la imagen en escala de grises
+
+    Returns:
+        dict con blur_score y is_blurry
+    """
+    # Convertir a escala de grises si es necesario
+    if len(image_array.shape) == 3:
+        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image_array
+
+    # Calcular varianza del Laplaciano
+    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+    # Umbral: valores < 100 indican imagen borrosa
+    is_blurry = laplacian_var < 100
+
+    return {
+        "blur_score": float(laplacian_var),
+        "is_blurry": bool(is_blurry),
+        "quality": "baja" if is_blurry else "buena"
+    }
+
+def detect_brightness_quality(image_array):
+    """
+    Analiza la calidad de iluminación de la imagen
+
+    Args:
+        image_array: numpy array de la imagen (RGB)
+
+    Returns:
+        dict con métricas de brillo
+    """
+    # Convertir a escala de grises
+    if len(image_array.shape) == 3:
+        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image_array
+
+    # Calcular brillo medio
+    mean_brightness = np.mean(gray)
+
+    # Calcular contraste (desviación estándar)
+    contrast = np.std(gray)
+
+    # Evaluar calidad
+    is_too_dark = mean_brightness < 50
+    is_too_bright = mean_brightness > 200
+    is_low_contrast = contrast < 30
+
+    quality = "buena"
+    if is_too_dark:
+        quality = "muy_oscura"
+    elif is_too_bright:
+        quality = "muy_clara"
+    elif is_low_contrast:
+        quality = "bajo_contraste"
+
+    return {
+        "mean_brightness": float(mean_brightness),
+        "contrast": float(contrast),
+        "is_too_dark": bool(is_too_dark),
+        "is_too_bright": bool(is_too_bright),
+        "is_low_contrast": bool(is_low_contrast),
+        "quality": quality
+    }
+
+def detect_roi(image_array):
+    """
+    Detecta la región de interés (ROI) donde está el pez usando detección de bordes y contornos
+
+    Args:
+        image_array: numpy array de la imagen (RGB)
+
+    Returns:
+        dict con bbox y ROI cropped, o None si no se detecta
+    """
+    # Convertir a escala de grises
+    if len(image_array.shape) == 3:
+        gray = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image_array
+
+    # Aplicar filtro de suavizado
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Detección de bordes con Canny
+    edges = cv2.Canny(blurred, 50, 150)
+
+    # Dilatar para conectar bordes
+    kernel = np.ones((5, 5), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+
+    # Encontrar contornos
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not contours:
+        return None
+
+    # Obtener el contorno más grande (asumimos que es el pez)
+    largest_contour = max(contours, key=cv2.contourArea)
+
+    # Calcular área del contorno
+    contour_area = cv2.contourArea(largest_contour)
+    image_area = gray.shape[0] * gray.shape[1]
+    area_ratio = contour_area / image_area
+
+    # Si el contorno es muy pequeño o muy grande, probablemente no es un pez
+    if area_ratio < 0.05 or area_ratio > 0.95:
+        return None
+
+    # Obtener bounding box
+    x, y, w, h = cv2.boundingRect(largest_contour)
+
+    # Añadir margen del 10%
+    margin_x = int(w * 0.1)
+    margin_y = int(h * 0.1)
+
+    x = max(0, x - margin_x)
+    y = max(0, y - margin_y)
+    w = min(image_array.shape[1] - x, w + 2 * margin_x)
+    h = min(image_array.shape[0] - y, h + 2 * margin_y)
+
+    # Extraer ROI
+    roi = image_array[y:y+h, x:x+w]
+
+    return {
+        "bbox": {"x": int(x), "y": int(y), "width": int(w), "height": int(h)},
+        "roi": roi,
+        "area_ratio": float(area_ratio),
+        "detected": True
+    }
+
+def analyze_image_quality(image_path):
+    """
+    Analiza la calidad completa de la imagen y detecta ROI
+
+    Args:
+        image_path: Ruta a la imagen o objeto BytesIO
+
+    Returns:
+        dict con todas las métricas de calidad
+    """
+    # Cargar imagen
+    if isinstance(image_path, (str, bytes, os.PathLike)):
+        img = Image.open(image_path)
+    else:
+        img = Image.open(image_path)
+
+    # Convertir a RGB si es necesario
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    # Convertir a numpy array
+    img_array = np.array(img, dtype=np.uint8)
+
+    # Analizar blur
+    blur_metrics = detect_blur(img_array)
+
+    # Analizar brillo
+    brightness_metrics = detect_brightness_quality(img_array)
+
+    # Detectar ROI
+    roi_result = detect_roi(img_array)
+
+    # Determinar calidad general
+    quality_issues = []
+
+    if blur_metrics["is_blurry"]:
+        quality_issues.append("imagen_borrosa")
+
+    if brightness_metrics["is_too_dark"]:
+        quality_issues.append("muy_oscura")
+    elif brightness_metrics["is_too_bright"]:
+        quality_issues.append("muy_clara")
+
+    if brightness_metrics["is_low_contrast"]:
+        quality_issues.append("bajo_contraste")
+
+    if roi_result is None:
+        quality_issues.append("no_se_detecta_objeto")
+
+    # Calcular score de calidad (0-100)
+    quality_score = 100.0
+
+    if blur_metrics["is_blurry"]:
+        quality_score -= 30
+    if brightness_metrics["is_too_dark"] or brightness_metrics["is_too_bright"]:
+        quality_score -= 25
+    if brightness_metrics["is_low_contrast"]:
+        quality_score -= 15
+    if roi_result is None:
+        quality_score -= 30
+
+    quality_score = max(0, quality_score)
+
+    is_good_quality = quality_score >= 60 and len(quality_issues) == 0
+
+    return {
+        "quality_score": quality_score,
+        "is_good_quality": is_good_quality,
+        "quality_issues": quality_issues,
+        "blur_metrics": blur_metrics,
+        "brightness_metrics": brightness_metrics,
+        "roi_detected": roi_result is not None,
+        "roi_result": roi_result,
+        "suggestions": get_quality_suggestions(quality_issues)
+    }
+
+def get_quality_suggestions(quality_issues):
+    """
+    Genera sugerencias basadas en los problemas de calidad detectados
+
+    Args:
+        quality_issues: lista de problemas detectados
+
+    Returns:
+        lista de sugerencias en español
+    """
+    suggestions = []
+
+    if "imagen_borrosa" in quality_issues:
+        suggestions.append("Mantén el teléfono estable o usa el temporizador")
+
+    if "muy_oscura" in quality_issues:
+        suggestions.append("Aumenta la iluminación o usa el flash")
+
+    if "muy_clara" in quality_issues:
+        suggestions.append("Reduce la luz directa o cambia el ángulo")
+
+    if "bajo_contraste" in quality_issues:
+        suggestions.append("Usa un fondo que contraste con el pez")
+
+    if "no_se_detecta_objeto" in quality_issues:
+        suggestions.append("Acerca el pez a la cámara y centra la imagen")
+
+    return suggestions
+
+def generate_gradcam(model, img_array, layer_name, class_index=None):
+    """
+    Genera un mapa de calor Grad-CAM para visualizar qué partes de la imagen influyeron en la decisión
+
+    Args:
+        model: Modelo Keras
+        img_array: Imagen preprocesada (1, 224, 224, 3)
+        layer_name: Nombre de la capa convolucional objetivo
+        class_index: Índice de la clase a visualizar (None = clase predicha)
+
+    Returns:
+        numpy array con el mapa de calor superpuesto sobre la imagen original
+    """
+    # Crear modelo que devuelve las activaciones de la capa conv y las predicciones
+    grad_model = keras.models.Model(
+        inputs=[model.inputs],
+        outputs=[model.get_layer(layer_name).output, model.output]
+    )
+
+    # Calcular gradientes
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(img_array)
+
+        # Si es un modelo con múltiples salidas, usar la primera
+        if isinstance(predictions, list):
+            predictions = predictions[0]
+
+        # Si no se especifica clase, usar la predicha
+        if class_index is None:
+            class_index = tf.argmax(predictions[0])
+
+        # Extraer probabilidad de la clase objetivo
+        class_channel = predictions[:, class_index]
+
+    # Calcular gradientes de la clase respecto a la salida de la capa conv
+    grads = tape.gradient(class_channel, conv_outputs)
+
+    # Pooling de gradientes (promedio global)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    # Multiplicar cada canal por su importancia y sumar
+    conv_outputs = conv_outputs[0]
+    pooled_grads = pooled_grads.numpy()
+    conv_outputs = conv_outputs.numpy()
+
+    for i in range(len(pooled_grads)):
+        conv_outputs[:, :, i] *= pooled_grads[i]
+
+    # Crear el mapa de calor
+    heatmap = np.mean(conv_outputs, axis=-1)
+
+    # Normalizar el mapa de calor entre 0 y 1
+    heatmap = np.maximum(heatmap, 0)  # ReLU
+    if heatmap.max() > 0:
+        heatmap /= heatmap.max()
+
+    return heatmap
+
+def superimpose_gradcam(img_array, heatmap, alpha=0.4):
+    """
+    Superpone el mapa de calor Grad-CAM sobre la imagen original
+
+    Args:
+        img_array: Imagen original (224, 224, 3) normalizada [0, 1]
+        heatmap: Mapa de calor Grad-CAM (7, 7) o tamaño de la capa conv
+        alpha: Transparencia del mapa de calor (0-1)
+
+    Returns:
+        Imagen PIL con el mapa de calor superpuesto
+    """
+    # Redimensionar heatmap al tamaño de la imagen
+    heatmap_resized = cv2.resize(heatmap, (224, 224))
+
+    # Convertir heatmap a colormap
+    heatmap_colored = cm.jet(heatmap_resized)[:, :, :3]  # RGB, sin alpha
+
+    # Desnormalizar imagen
+    img = img_array[0] * 255.0
+    img = img.astype(np.uint8)
+
+    # Convertir a float para mezclar
+    img_float = img.astype(np.float32) / 255.0
+
+    # Superponer
+    superimposed = heatmap_colored * alpha + img_float * (1 - alpha)
+    superimposed = np.clip(superimposed * 255, 0, 255).astype(np.uint8)
+
+    # Convertir a PIL Image
+    return Image.fromarray(superimposed)
+
+def get_last_conv_layer_name(model):
+    """
+    Encuentra la última capa convolucional del modelo
+
+    Args:
+        model: Modelo Keras
+
+    Returns:
+        Nombre de la última capa convolucional
+    """
+    for layer in reversed(model.layers):
+        # Buscar capas Conv2D
+        if isinstance(layer, keras.layers.Conv2D):
+            return layer.name
+        # También buscar en modelos anidados (como MobileNet)
+        if hasattr(layer, 'layers'):
+            for sublayer in reversed(layer.layers):
+                if isinstance(sublayer, keras.layers.Conv2D):
+                    return sublayer.name
+
+    # Si no se encuentra, devolver None
+    return None
+
+def predict_fish(image_path, use_roi=True, generate_gradcam_images=False):
+    """
+    Realiza la predicción completa del pez
+
+    Args:
+        image_path: Ruta a la imagen o BytesIO
+        use_roi: Si True, usa ROI detection para mejorar la predicción
+        generate_gradcam_images: Si True, genera mapas de calor Grad-CAM
+
+    Returns:
+        dict con las predicciones, métricas de calidad y mapas Grad-CAM (si se solicita)
     """
     if model is None:
         raise Exception("Modelo no cargado")
 
-    # Seleccionar text labels según la especie
-    if species_id == 0:  # Dorada
-        text_labels = TEXT_LABELS_DORADA
-    else:  # Lubina
-        text_labels = TEXT_LABELS_LUBINA
+    # Analizar calidad de imagen
+    quality_analysis = analyze_image_quality(image_path)
 
-    # Cargar y preprocesar imagen
-    image = Image.open(image_path).convert('RGB')
-    image_input = preprocess(image).unsqueeze(0).to(device)
+    # Preparar imagen para predicción
+    image_to_process = image_path
 
-    # Tokenizar textos
-    text_tokens = clip.tokenize(text_labels).to(device)
+    # Si ROI fue detectado y use_roi=True, usar ROI en lugar de imagen completa
+    if use_roi and quality_analysis["roi_detected"]:
+        roi_array = quality_analysis["roi_result"]["roi"]
+        # Convertir ROI numpy array a PIL Image y luego a BytesIO
+        roi_pil = Image.fromarray(roi_array.astype('uint8'), 'RGB')
+        roi_bytes = io.BytesIO()
+        roi_pil.save(roi_bytes, format='JPEG')
+        roi_bytes.seek(0)
+        image_to_process = roi_bytes
 
-    # Obtener embeddings
-    with torch.no_grad():
-        image_features = model.encode_image(image_input)
-        text_features = model.encode_text(text_tokens)
+    # Preprocesar imagen
+    img_array = preprocess_image(image_to_process)
 
-        # Normalizar
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+    # Hacer predicción
+    predictions = model.predict(img_array, verbose=0)
 
-        # Calcular similaridad y aplicar softmax
-        similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+    # Interpretar resultados
+    # predictions[0] = especie (logits)
+    # predictions[1] = clasificación (probabilidades)
 
-    # Obtener predicción
-    probs = similarity[0].cpu().numpy()
-    predicted_class = int(np.argmax(probs))
-    confidence = float(probs[predicted_class])
+    species_logits = predictions[0][0]  # Shape: (3,) ahora con 3 especies
+    classification_probs = predictions[1][0]  # Shape: (2,)
 
-    return {
-        "predicted_class": predicted_class,
-        "class_name": CLASS_NAMES[predicted_class],
-        "confidence": confidence,
+    # Aplicar softmax a los logits de especie para obtener probabilidades
+    species_probs = tf.nn.softmax(species_logits).numpy()
+
+    # Obtener predicciones
+    species_id = int(np.argmax(species_probs))
+    species_confidence = float(species_probs[species_id])
+
+    classification_id = int(np.argmax(classification_probs))
+    classification_confidence = float(classification_probs[classification_id])
+
+    # Estimación de confianza de detección de pez
+    # Usamos la confianza promedio como proxy
+    fish_confidence = float((species_confidence + classification_confidence) / 2)
+
+    # Verificar si la confianza es baja (< 85%)
+    low_confidence = species_confidence < CONFIDENCE_THRESHOLD
+
+    # Generar advertencias si la confianza es baja
+    warnings = []
+    if low_confidence:
+        warnings.append({
+            "type": "low_confidence",
+            "message": "Confianza baja en la predicción. Por favor, repite la foto.",
+            "detail": f"La confianza de {species_confidence*100:.1f}% es menor al umbral recomendado del {CONFIDENCE_THRESHOLD*100:.0f}%"
+        })
+
+    # Si predice "Otro", añadir advertencia adicional
+    if species_id == 2:
+        warnings.append({
+            "type": "unknown_species",
+            "message": "No se detectó una especie conocida (Dorada o Lubina).",
+            "detail": "Por favor, verifica que la foto sea de una Dorada o Lubina"
+        })
+
+    # Construir resultado
+    result = {
+        "success": True,
+        "is_fish": fish_confidence > 0.5,  # Umbral para detectar pez
+        "fish_confidence": fish_confidence,
+        "species": SPECIES_NAMES[species_id],
+        "species_id": species_id,
+        "species_confidence": species_confidence,
+        "species_probabilities": {
+            "dorada": float(species_probs[0]),
+            "lubina": float(species_probs[1]),
+            "otro": float(species_probs[2])
+        },
+        "classification": CLASS_NAMES[classification_id],
+        "classification_id": classification_id,
+        "classification_confidence": classification_confidence,
         "probabilities": {
-            "cultivada": float(probs[0]),
-            "salvaje": float(probs[1])
+            "cultivada": float(classification_probs[0]),
+            "salvaje": float(classification_probs[1])
+        },
+        "summary": f"{SPECIES_NAMES[species_id]} {CLASS_NAMES[classification_id]}",
+        "low_confidence": low_confidence,
+        "warnings": warnings,
+        "quality_analysis": {
+            "quality_score": quality_analysis["quality_score"],
+            "is_good_quality": quality_analysis["is_good_quality"],
+            "quality_issues": quality_analysis["quality_issues"],
+            "suggestions": quality_analysis["suggestions"],
+            "roi_detected": quality_analysis["roi_detected"],
+            "roi_bbox": quality_analysis["roi_result"]["bbox"] if quality_analysis["roi_detected"] else None
         }
     }
 
-# Cargar el modelo al iniciar la aplicación Flask
+    # Generar Grad-CAM si se solicita
+    if generate_gradcam_images:
+        try:
+            # Encontrar última capa convolucional
+            conv_layer_name = get_last_conv_layer_name(model)
+
+            if conv_layer_name:
+                # Generar Grad-CAM para especie
+                heatmap_species = generate_gradcam(model, img_array, conv_layer_name, class_index=species_id)
+                gradcam_species_img = superimpose_gradcam(img_array, heatmap_species)
+
+                # Convertir a base64
+                buffer_species = io.BytesIO()
+                gradcam_species_img.save(buffer_species, format='PNG')
+                gradcam_species_base64 = base64.b64encode(buffer_species.getvalue()).decode('utf-8')
+
+                # Generar Grad-CAM para clasificación (salvaje/cultivada)
+                # Nota: Como el modelo tiene 2 salidas, necesitamos generar Grad-CAM de forma diferente
+                # Por ahora, generamos para la especie predicha
+                heatmap_classification = generate_gradcam(model, img_array, conv_layer_name, class_index=classification_id)
+                gradcam_classification_img = superimpose_gradcam(img_array, heatmap_classification, alpha=0.5)
+
+                buffer_classification = io.BytesIO()
+                gradcam_classification_img.save(buffer_classification, format='PNG')
+                gradcam_classification_base64 = base64.b64encode(buffer_classification.getvalue()).decode('utf-8')
+
+                result["gradcam"] = {
+                    "species": f"data:image/png;base64,{gradcam_species_base64}",
+                    "classification": f"data:image/png;base64,{gradcam_classification_base64}",
+                    "conv_layer": conv_layer_name
+                }
+            else:
+                result["gradcam"] = {
+                    "error": "No se encontró capa convolucional en el modelo"
+                }
+        except Exception as e:
+            print(f"Error generando Grad-CAM: {e}")
+            import traceback
+            traceback.print_exc()
+            result["gradcam"] = {
+                "error": str(e)
+            }
+
+    return result
+
+# Cargar el modelo al iniciar
 with app.app_context():
     load_model()
 
 @app.route('/')
-def index():
+def home():
     return render_template('index.html')
 
 @app.route('/predict', methods=['POST'])
@@ -245,6 +632,9 @@ def predict():
         return jsonify({"error": "No se seleccionó ningún archivo."}), 400
 
     try:
+        # Verificar si se solicita Grad-CAM
+        enable_gradcam = request.form.get('enable_gradcam', 'false').lower() == 'true'
+
         # Leer los datos de la imagen en memoria
         image_data = file.read()
 
@@ -262,48 +652,24 @@ def predict():
             f.write(image_data)
         print(f"Imagen guardada como: {unique_filename}")
 
-        # 1. Validar que hay un pez en la imagen
-        is_fish, fish_confidence = validate_fish_presence(image_path)
+        # Hacer predicción
+        result = predict_fish(image_path, generate_gradcam_images=enable_gradcam)
 
-        if not is_fish:
+        # Verificar si se detectó un pez
+        if not result["is_fish"]:
             return jsonify({
                 "error": "No se detectó un pez en la imagen",
                 "is_fish": False,
-                "fish_confidence": fish_confidence,
+                "fish_confidence": result["fish_confidence"],
                 "message": "Por favor, toma una foto donde aparezca claramente un pez"
             }), 400
 
-        # 2. Detectar tipo de pez (Dorada o Lubina)
-        species_name, species_id, species_confidence = detect_species(image_path)
-
-        # Calcular probabilidades de ambas especies para debug
-        species_probs = {
-            "dorada": species_confidence if species_id == 0 else (1 - species_confidence),
-            "lubina": species_confidence if species_id == 1 else (1 - species_confidence)
-        }
-
-        # 3. Clasificar si es salvaje o cultivado
-        classification = classify_fish(image_path, species_id)
-
-        # Construir respuesta completa
-        result = {
-            "success": True,
-            "is_fish": True,
-            "fish_confidence": fish_confidence,
-            "species": species_name,
-            "species_id": species_id,
-            "species_confidence": species_confidence,
-            "species_probabilities": species_probs,
-            "classification": classification["class_name"],
-            "classification_id": classification["predicted_class"],
-            "classification_confidence": classification["confidence"],
-            "probabilities": classification["probabilities"],
-            "filename": unique_filename,
-            "summary": f"{species_name} {classification['class_name']}"
-        }
+        # Agregar filename al resultado
+        result["filename"] = unique_filename
 
         # Log para debug
-        print(f"Predicción final - Especie: {species_name} ({species_confidence:.2%}), Clasificación: {classification['class_name']} ({classification['confidence']:.2%})")
+        print(f"Predicción - Especie: {result['species']} ({result['species_confidence']:.2%}), "
+              f"Clasificación: {result['classification']} ({result['classification_confidence']:.2%})")
 
         return jsonify(result)
 
@@ -317,7 +683,7 @@ def predict():
 def predict_realtime():
     """
     Endpoint optimizado para detección en tiempo real.
-    Retorna respuestas más rápidas con menor logging.
+    No guarda imágenes en disco para mayor velocidad.
     """
     if model is None:
         return jsonify({"error": "Modelo no cargado."}), 500
@@ -330,116 +696,64 @@ def predict_realtime():
         return jsonify({"error": "No se seleccionó ningún archivo."}), 400
 
     try:
-        # Leer los datos de la imagen en memoria (sin guardar en disco para mayor velocidad)
+        # Leer los datos de la imagen en memoria (sin guardar en disco)
         image_data = file.read()
+        image_path = io.BytesIO(image_data)
 
-        # Crear una ruta temporal en memoria
-        from io import BytesIO
-        image_path = BytesIO(image_data)
+        # Hacer predicción
+        result = predict_fish(image_path)
 
-        # 1. Validar que hay un pez en la imagen
-        image = Image.open(image_path).convert('RGB')
-        image_input = preprocess(image).unsqueeze(0).to(device)
-
-        # Validación de pez
-        text_tokens = clip.tokenize(VALIDATION_LABELS).to(device)
-        with torch.no_grad():
-            image_features = model.encode_image(image_input)
-            text_features = model.encode_text(text_tokens)
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-
-        probs = similarity[0].cpu().numpy()
-        fish_confidence = float(probs[0])
-
-        if fish_confidence <= 0.5:
+        # Para tiempo real, siempre retornar success=True
+        # El frontend maneja el caso de no detectar pez
+        if not result["is_fish"]:
             return jsonify({
                 "success": False,
                 "is_fish": False,
-                "fish_confidence": fish_confidence,
+                "fish_confidence": result["fish_confidence"],
                 "message": "Buscando pez..."
             }), 200
-
-        # 2. Detectar especie con prompts ensemble
-        dorada_prompts = [
-            "a photo of a dorada fish with oval rounded body, silver grey color with golden spots near eyes, steep forehead profile, sparus aurata gilthead seabream",
-            "a gilthead sea bream fish with rounded oval shape and golden markings",
-            "sparus aurata dorada with compact oval body shape"
-        ]
-
-        lubina_prompts = [
-            "a photo of a sea bass fish with elongated streamlined body, dark silver grey color, straight head profile, prominent jaw, dicentrarchus labrax lubina",
-            "a european sea bass with long streamlined body and prominent lower jaw",
-            "dicentrarchus labrax lubina with elongated torpedo-shaped body"
-        ]
-
-        all_prompts = dorada_prompts + lubina_prompts
-        text_tokens = clip.tokenize(all_prompts).to(device)
-
-        with torch.no_grad():
-            text_features = model.encode_text(text_tokens)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-
-        probs = similarity[0].cpu().numpy()
-        num_dorada_prompts = len(dorada_prompts)
-
-        dorada_prob = np.mean(probs[:num_dorada_prompts])
-        lubina_prob = np.mean(probs[num_dorada_prompts:])
-
-        total = dorada_prob + lubina_prob
-        dorada_prob_norm = dorada_prob / total
-        lubina_prob_norm = lubina_prob / total
-
-        if dorada_prob_norm > lubina_prob_norm:
-            species_id = 0
-            species_confidence = float(dorada_prob_norm)
-        else:
-            species_id = 1
-            species_confidence = float(lubina_prob_norm)
-
-        species_name = SPECIES_NAMES[species_id]
-
-        # 3. Clasificar cultivado vs salvaje
-        text_labels = TEXT_LABELS_DORADA if species_id == 0 else TEXT_LABELS_LUBINA
-        text_tokens = clip.tokenize(text_labels).to(device)
-
-        with torch.no_grad():
-            text_features = model.encode_text(text_tokens)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-
-        probs = similarity[0].cpu().numpy()
-        predicted_class = int(np.argmax(probs))
-        classification_confidence = float(probs[predicted_class])
-
-        # Construir respuesta compacta para tiempo real
-        result = {
-            "success": True,
-            "is_fish": True,
-            "fish_confidence": fish_confidence,
-            "species": species_name,
-            "species_id": species_id,
-            "species_confidence": species_confidence,
-            "species_probabilities": {
-                "dorada": float(dorada_prob_norm),
-                "lubina": float(lubina_prob_norm)
-            },
-            "classification": CLASS_NAMES[predicted_class],
-            "classification_id": predicted_class,
-            "classification_confidence": classification_confidence,
-            "probabilities": {
-                "cultivada": float(probs[0]),
-                "salvaje": float(probs[1])
-            },
-            "summary": f"{species_name} {CLASS_NAMES[predicted_class]}"
-        }
 
         return jsonify(result)
 
     except Exception as e:
         print(f"Error en detección en tiempo real: {e}")
+        return jsonify({"success": False, "error": f"Error: {str(e)}"}), 500
+
+@app.route('/analyze_quality', methods=['POST'])
+def analyze_quality():
+    """
+    Endpoint para análisis rápido de calidad de imagen sin hacer predicción.
+    Útil para feedback en tiempo real.
+    """
+    if 'image' not in request.files:
+        return jsonify({"error": "No se encontró la imagen en la solicitud."}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "No se seleccionó ningún archivo."}), 400
+
+    try:
+        # Leer los datos de la imagen en memoria
+        image_data = file.read()
+        image_path = io.BytesIO(image_data)
+
+        # Analizar calidad
+        quality_analysis = analyze_image_quality(image_path)
+
+        return jsonify({
+            "success": True,
+            "quality_score": quality_analysis["quality_score"],
+            "is_good_quality": quality_analysis["is_good_quality"],
+            "quality_issues": quality_analysis["quality_issues"],
+            "suggestions": quality_analysis["suggestions"],
+            "roi_detected": quality_analysis["roi_detected"],
+            "roi_bbox": quality_analysis["roi_result"]["bbox"] if quality_analysis["roi_detected"] else None
+        })
+
+    except Exception as e:
+        print(f"Error en análisis de calidad: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": f"Error: {str(e)}"}), 500
 
 @app.route('/health', methods=['GET'])
@@ -448,8 +762,8 @@ def health():
     return jsonify({
         "status": "ok",
         "model_loaded": model is not None,
-        "device": device
+        "model_type": "MobileNetV2 Student"
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)

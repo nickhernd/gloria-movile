@@ -1,5 +1,5 @@
 {
   "appId": "com.gloria.movile",
   "appName": "Gloria Movile",
-  "webDir": "../web_app"
+  "webDir": "../frontend"
 }
