@@ -237,11 +237,27 @@ function displayResults(data) {
         addToHistory(data, imageData);
     }
 
-    // Resultado principal compacto
-    const speciesIcon = data.species === 'Dorada' ? '🐟' : '🐠';
+    // Resultado principal compacto con advertencias si las hay
+    const speciesIcon = data.species === 'Dorada' ? '🐟' : (data.species === 'Lubina' ? '🐠' : '🐡');
     const classificationColor = data.classification === 'Salvaje' ? 'success' : 'warning';
 
+    let warningsHTML = '';
+    if (data.warnings && data.warnings.length > 0) {
+        warningsHTML = `
+            <div class="alert alert-warning mt-3 mb-3" role="alert">
+                <strong><i class="bi bi-exclamation-triangle-fill"></i> Advertencias:</strong>
+                ${data.warnings.map(w => `
+                    <div class="mt-2">
+                        <strong>${w.message}</strong>
+                        <div class="small">${w.detail}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
     mainResult.innerHTML = `
+        ${warningsHTML}
         <h4>${speciesIcon} ${data.species} - ${data.classification}</h4>
     `;
 
@@ -274,24 +290,34 @@ function displayResults(data) {
     if (data.species_probabilities) {
         const probDorada = data.species_probabilities.dorada * 100;
         const probLubina = data.species_probabilities.lubina * 100;
+        const probOtro = data.species_probabilities.otro * 100;
         speciesDebug = `
             <div class="mb-4">
                 <div class="mb-2">
                     <div class="d-flex justify-content-between mb-1">
-                        <span class="small">Dorada</span>
+                        <span class="small">🐟 Dorada</span>
                         <span class="small fw-bold">${probDorada.toFixed(0)}%</span>
                     </div>
                     <div class="progress">
                         <div class="progress-bar bg-info" style="width: ${probDorada}%;"></div>
                     </div>
                 </div>
-                <div>
+                <div class="mb-2">
                     <div class="d-flex justify-content-between mb-1">
-                        <span class="small">Lubina</span>
+                        <span class="small">🐠 Lubina</span>
                         <span class="small fw-bold">${probLubina.toFixed(0)}%</span>
                     </div>
                     <div class="progress">
                         <div class="progress-bar bg-secondary" style="width: ${probLubina}%;"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="small">🐡 Otro</span>
+                        <span class="small fw-bold">${probOtro.toFixed(0)}%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar bg-dark" style="width: ${probOtro}%;"></div>
                     </div>
                 </div>
             </div>
@@ -650,7 +676,7 @@ function updateRealtimeOverlay(data, fishDetected) {
         `;
     } else {
         // Pez detectado - mostrar información completa
-        const speciesIcon = data.species === 'Dorada' ? '🐟' : '🐠';
+        const speciesIcon = data.species === 'Dorada' ? '🐟' : (data.species === 'Lubina' ? '🐠' : '🐡');
         const classificationColor = data.classification === 'Salvaje' ? 'success' : 'warning';
 
         // Calcular porcentajes
@@ -660,11 +686,21 @@ function updateRealtimeOverlay(data, fishDetected) {
 
         const doradaProb = (data.species_probabilities.dorada * 100).toFixed(0);
         const lubinaProb = (data.species_probabilities.lubina * 100).toFixed(0);
+        const otroProb = (data.species_probabilities.otro * 100).toFixed(0);
         const cultivadaProb = (data.probabilities.cultivada * 100).toFixed(0);
         const salvajeProb = (data.probabilities.salvaje * 100).toFixed(0);
 
+        // Advertencia de confianza baja
+        const lowConfidenceWarning = speciesConf < 85 ? `
+            <div class="overlay-warning">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                Confianza baja (${speciesConf}%) - Repite la foto
+            </div>
+        ` : '';
+
         overlayContent.innerHTML = `
             <div class="overlay-detection-info">
+                ${lowConfidenceWarning}
                 <!-- Badges principales -->
                 <div class="overlay-main-badges">
                     <div class="overlay-badge species-badge">
@@ -701,6 +737,15 @@ function updateRealtimeOverlay(data, fishDetected) {
                                 </div>
                                 <div class="prob-bar">
                                     <div class="prob-bar-fill species-lubina" style="width: ${lubinaProb}%"></div>
+                                </div>
+                            </div>
+                            <div class="prob-bar-wrapper">
+                                <div class="prob-bar-label">
+                                    <span>🐡 Otro</span>
+                                    <span class="prob-value">${otroProb}%</span>
+                                </div>
+                                <div class="prob-bar">
+                                    <div class="prob-bar-fill species-otro" style="width: ${otroProb}%"></div>
                                 </div>
                             </div>
                         </div>

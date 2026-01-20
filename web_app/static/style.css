@@ -434,7 +434,7 @@ h6 {
     object-fit: contain;
 }
 
-/* Overlay de detección en tiempo real - Minimalista */
+/* Overlay de detección en tiempo real - Mejorado sin superposición */
 .realtime-overlay {
     position: absolute;
     top: 0;
@@ -449,7 +449,9 @@ h6 {
 }
 
 .realtime-overlay.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.3s ease;
 }
 
 .overlay-content {
@@ -459,7 +461,9 @@ h6 {
     right: 1rem;
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: 0.75rem;
+    max-height: 50%;
+    overflow-y: auto;
 }
 
 /* Estados de búsqueda y error */
@@ -631,12 +635,36 @@ h6 {
     background: linear-gradient(90deg, #6b7280, #9ca3af);
 }
 
+.prob-bar-fill.species-otro {
+    background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+}
+
 .prob-bar-fill.classification-cultivada {
     background: linear-gradient(90deg, #f59e0b, #fbbf24);
 }
 
 .prob-bar-fill.classification-salvaje {
     background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+/* Advertencia de confianza baja en overlay */
+.overlay-warning {
+    background: rgba(239, 68, 68, 0.95);
+    backdrop-filter: blur(15px);
+    color: white;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 2px solid rgba(220, 38, 38, 0.3);
+    margin-bottom: 0.75rem;
+}
+
+.overlay-warning i {
+    font-size: 1.2rem;
 }
 
 /* Confianza de detección */
@@ -832,6 +860,10 @@ footer .text-muted {
     object-fit: contain;
     margin: 0 1rem;
     opacity: 0.7;
+}
+
+.gloria-logo {
+    height: 40px;
 }
 
 /* Iconos */
@@ -1132,13 +1164,19 @@ footer .text-muted {
     }
 
     .overlay-content {
-        top: 0.5rem;
+        bottom: 0.5rem;
         left: 0.5rem;
         right: 0.5rem;
+        max-height: 40%;
     }
 
     .overlay-detection-confidence {
         font-size: 0.75rem;
+    }
+
+    .overlay-warning {
+        font-size: 0.8rem;
+        padding: 0.5rem 0.75rem;
     }
 }
 
@@ -1574,4 +1612,28 @@ button, .btn, a, .card, .info-card, .progress-bar {
     .gradcam-container {
         padding: 0.75rem;
     }
+}
+
+/* ========== ALERTAS Y WARNINGS ========== */
+
+/* Alertas de advertencia */
+.alert {
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid;
+}
+
+.alert-warning {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #92400e;
+}
+
+.alert-warning strong {
+    color: #78350f;
+}
+
+.bg-dark {
+    background: var(--gray-900) !important;
 }
