@@ -18,8 +18,20 @@ import base64
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import zipfile
+import tempfile
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# ==============================================================================
+# SWITCH DE VERSIÓN DE MODELOS - CAMBIAR AQUÍ PARA USAR DIFERENTES MODELOS
+# ==============================================================================
+# Para cambiar de versión, comenta una línea y descomenta la otra:
+
+USE_NEW_MODELS = True   # <- USAR MODELOS NUEVOS (ViT) - new_models/
+# USE_NEW_MODELS = False  # <- USAR MODELOS ANTIGUOS (ConvNeXt) - last_model/
+
+# ==============================================================================
 template_dir = os.path.join(script_dir, 'templates')
 static_dir = os.path.join(script_dir, 'static')
 
@@ -147,6 +159,129 @@ class ConvNeXt(nn.Module):
 
 # ==================== FIN ARQUITECTURA CONVNEXT ====================
 
+
+# ==================== ARQUITECTURA VIT-LARGE ====================
+class PatchEmbed(nn.Module):
+    """Patch Embedding para ViT"""
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=1024):
+        super().__init__()
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = (img_size // patch_size) ** 2
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+
+    def forward(self, x):
+        x = self.proj(x)  # (B, embed_dim, H/patch, W/patch)
+        x = x.flatten(2)  # (B, embed_dim, num_patches)
+        x = x.transpose(1, 2)  # (B, num_patches, embed_dim)
+        return x
+
+
+class Attention(nn.Module):
+    """Multi-Head Self Attention"""
+    def __init__(self, dim, num_heads=16):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.qkv = nn.Linear(dim, dim * 3)
+        self.proj = nn.Linear(dim, dim)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        return x
+
+
+class MLP(nn.Module):
+    """MLP para ViT"""
+    def __init__(self, in_features, hidden_features):
+        super().__init__()
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = nn.GELU()
+        self.fc2 = nn.Linear(hidden_features, in_features)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.fc2(x)
+        return x
+
+
+class Block(nn.Module):
+    """Transformer Block para ViT"""
+    def __init__(self, dim, num_heads=16, mlp_ratio=4.0):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim)
+        self.attn = Attention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim)
+        self.mlp = MLP(dim, int(dim * mlp_ratio))
+
+    def forward(self, x):
+        x = x + self.attn(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class VisionTransformer(nn.Module):
+    """Vision Transformer (ViT-Large)"""
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=2,
+                 embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4.0):
+        super().__init__()
+        self.num_classes = num_classes
+        self.embed_dim = embed_dim
+
+        # Patch embedding
+        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        num_patches = self.patch_embed.num_patches
+
+        # CLS token y positional embedding
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+
+        # Transformer blocks
+        self.blocks = nn.ModuleList([
+            Block(embed_dim, num_heads, mlp_ratio) for _ in range(depth)
+        ])
+
+        # Normalization y head
+        self.norm = nn.LayerNorm(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes)
+
+    def forward(self, x):
+        B = x.shape[0]
+
+        # Patch embedding
+        x = self.patch_embed(x)
+
+        # Agregar CLS token
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+
+        # Agregar positional embedding
+        x = x + self.pos_embed
+
+        # Transformer blocks
+        for block in self.blocks:
+            x = block(x)
+
+        # Normalization
+        x = self.norm(x)
+
+        # Usar CLS token para clasificación
+        x = x[:, 0]
+        x = self.head(x)
+
+        return x
+
+# ==================== FIN ARQUITECTURA VIT ====================
+
+
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app)
 
@@ -157,9 +292,10 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # Modelos globales
 model = None  # Modelo TensorFlow antiguo (opcional, por compatibilidad)
-model_fish_detector = None  # Modelo PyTorch: detecta si hay pez
+model_fish_detector = None  # Modelo PyTorch: detecta si hay pez (solo ConvNeXt/last_model)
 model_species_classifier = None  # Modelo PyTorch: clasifica entre dorada y lubina
-model_wild_cultivated = None  # Modelo PyTorch: clasifica cultivada vs salvaje
+model_wild_cultivated = None  # Modelo PyTorch: clasifica cultivada vs salvaje (genérico o para Dorada)
+model_wild_cultivated_lubina = None  # Modelo PyTorch: clasifica cultivada vs salvaje para Lubina (solo ViT/new_models)
 
 # Nombres de clases para modelos PyTorch
 FISH_DETECTOR_NAMES = {
@@ -167,7 +303,14 @@ FISH_DETECTOR_NAMES = {
     1: "Pez"
 }
 
-SPECIES_NAMES_PYTORCH = {
+# Para modelos ViT (new_models): 0=Lubina, 1=Dorada
+# Para modelos ConvNeXt (old_models): 0=Dorada, 1=Lubina
+SPECIES_NAMES_PYTORCH_VIT = {
+    0: "Lubina",
+    1: "Dorada"
+}
+
+SPECIES_NAMES_PYTORCH_CONVNEXT = {
     0: "Dorada",
     1: "Lubina"
 }
@@ -191,52 +334,157 @@ CONFIDENCE_THRESHOLD = 0.85
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Usando dispositivo: {DEVICE}")
 
-def load_pytorch_models():
-    """Carga los tres modelos PyTorch de detección y clasificación"""
-    global model_fish_detector, model_species_classifier, model_wild_cultivated
+
+def load_state_dict_from_directory(model_dir):
+    """
+    Carga un state_dict desde un modelo guardado en formato de directorio (PyTorch nuevo formato).
+
+    Args:
+        model_dir: Ruta al directorio del modelo (contiene data.pkl, data/, etc.)
+
+    Returns:
+        OrderedDict con el state_dict del modelo
+    """
+    # Crear archivo zip temporal con la estructura correcta
+    with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:
+        temp_path = f.name
 
     try:
-        # Construir rutas a los modelos
+        # Comprimir el directorio al formato zip que PyTorch espera
+        with zipfile.ZipFile(temp_path, 'w') as zf:
+            for root, dirs, files in os.walk(model_dir):
+                for file in files:
+                    filepath = os.path.join(root, file)
+                    # El formato requiere prefijo 'archive/'
+                    arcname = 'archive/' + os.path.relpath(filepath, model_dir)
+                    zf.write(filepath, arcname)
+
+        # Cargar el state_dict
+        state_dict = torch.load(temp_path, map_location=DEVICE, weights_only=False)
+        return state_dict
+    finally:
+        # Limpiar archivo temporal
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+def load_pytorch_models():
+    """Carga los modelos PyTorch según la configuración USE_NEW_MODELS"""
+    global model_fish_detector, model_species_classifier, model_wild_cultivated, model_wild_cultivated_lubina
+
+    try:
+        # Construir rutas base
         script_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(script_dir)
-        fish_detector_path = os.path.join(parent_dir, 'model', 'best_nopez_pez.pth')
-        species_classifier_path = os.path.join(parent_dir, 'model', 'best_aurata_labrax.pth')
-        wild_cultivated_path = os.path.join(parent_dir, 'model', 'best_cautiva_salvaje.pth')
 
-        # Cargar modelo detector de pez
-        print("Cargando modelo detector de pez (best_nopez_pez)...")
-        print(f"Ruta: {fish_detector_path}")
-        model_fish_detector = ConvNeXt(in_chans=3, num_classes=2)
-        state_dict = torch.load(fish_detector_path, map_location=DEVICE)
-        model_fish_detector.load_state_dict(state_dict)
-        model_fish_detector.to(DEVICE)
-        model_fish_detector.eval()
-        print("✓ Modelo detector de pez cargado exitosamente")
+        print("=" * 60)
+        if USE_NEW_MODELS:
+            print("CARGANDO MODELOS NUEVOS (ViT) - new_models/")
+        else:
+            print("CARGANDO MODELOS ANTIGUOS (ConvNeXt) - last_model/")
+        print("=" * 60)
 
-        # Cargar modelo clasificador de especies
-        print("Cargando modelo clasificador de especies (best_aurata_labrax)...")
-        print(f"Ruta: {species_classifier_path}")
-        model_species_classifier = ConvNeXt(in_chans=3, num_classes=2)
-        state_dict = torch.load(species_classifier_path, map_location=DEVICE)
-        model_species_classifier.load_state_dict(state_dict)
-        model_species_classifier.to(DEVICE)
-        model_species_classifier.eval()
-        print("✓ Modelo clasificador de especies cargado exitosamente")
+        if USE_NEW_MODELS:
+            # ============ NUEVOS MODELOS (ViT) ============
+            # Rutas a los modelos nuevos
+            species_path = os.path.join(parent_dir, 'model', 'new_models', 'vit_dl_sa_improved.pth')
+            wild_dorada_path = os.path.join(parent_dir, 'model', 'new_models',
+                'wetransfer_vit_origin_dl_s_vs_ce-pth_2026-01-28_1749', 'vit_origin_SA_S_vs_CE.pth')
+            wild_lubina_path = os.path.join(parent_dir, 'model', 'new_models',
+                'wetransfer_vit_origin_dl_s_vs_ce-pth_2026-01-28_1749', 'vit_origin_DL_S_vs_CE.pth')
 
-        # Cargar modelo clasificador cultivada/salvaje (PyTorch)
-        print("Cargando modelo clasificador cultivada/salvaje (best_cautiva_salvaje)...")
-        print(f"Ruta: {wild_cultivated_path}")
-        model_wild_cultivated = ConvNeXt(in_chans=3, num_classes=2)
-        state_dict = torch.load(wild_cultivated_path, map_location=DEVICE)
-        model_wild_cultivated.load_state_dict(state_dict)
-        model_wild_cultivated.to(DEVICE)
-        model_wild_cultivated.eval()
-        print("✓ Modelo clasificador cultivada/salvaje cargado exitosamente")
+            # No hay detector de pez en los nuevos modelos - se asume que siempre hay pez
+            model_fish_detector = None
+            print("ℹ️  Detector de pez: No requerido (ViT asume imagen válida)")
 
+            # Cargar clasificador de especies (ViT)
+            print(f"Cargando clasificador de especies (ViT)...")
+            print(f"  Ruta: {species_path}")
+            model_species_classifier = VisionTransformer(
+                img_size=224, patch_size=16, in_chans=3, num_classes=2,
+                embed_dim=1024, depth=24, num_heads=16
+            )
+            state_dict = torch.load(species_path, map_location=DEVICE, weights_only=False)
+            model_species_classifier.load_state_dict(state_dict)
+            model_species_classifier.to(DEVICE)
+            model_species_classifier.eval()
+            print("✓ Clasificador de especies (ViT) cargado")
+
+            # Cargar clasificador cultivada/salvaje para DORADA (ViT)
+            print(f"Cargando clasificador Cultivada/Salvaje para DORADA (ViT)...")
+            print(f"  Ruta: {wild_dorada_path}")
+            model_wild_cultivated = VisionTransformer(
+                img_size=224, patch_size=16, in_chans=3, num_classes=2,
+                embed_dim=1024, depth=24, num_heads=16
+            )
+            state_dict = torch.load(wild_dorada_path, map_location=DEVICE, weights_only=False)
+            model_wild_cultivated.load_state_dict(state_dict)
+            model_wild_cultivated.to(DEVICE)
+            model_wild_cultivated.eval()
+            print("✓ Clasificador Cultivada/Salvaje DORADA (ViT) cargado")
+
+            # Cargar clasificador cultivada/salvaje para LUBINA (ViT)
+            print(f"Cargando clasificador Cultivada/Salvaje para LUBINA (ViT)...")
+            print(f"  Ruta: {wild_lubina_path}")
+            model_wild_cultivated_lubina = VisionTransformer(
+                img_size=224, patch_size=16, in_chans=3, num_classes=2,
+                embed_dim=1024, depth=24, num_heads=16
+            )
+            state_dict = torch.load(wild_lubina_path, map_location=DEVICE, weights_only=False)
+            model_wild_cultivated_lubina.load_state_dict(state_dict)
+            model_wild_cultivated_lubina.to(DEVICE)
+            model_wild_cultivated_lubina.eval()
+            print("✓ Clasificador Cultivada/Salvaje LUBINA (ViT) cargado")
+
+        else:
+            # ============ MODELOS ANTIGUOS (ConvNeXt) ============
+            fish_detector_path = os.path.join(parent_dir, 'model', 'old_models', 'best_nopez_pez.pth')
+            species_classifier_path = os.path.join(parent_dir, 'model', 'old_models', 'best_aurata_labrax.pth')
+            wild_cultivated_v3_path = os.path.join(parent_dir, 'model', 'last_model', 'best_cautiva_salvaje_v3')
+
+            # Cargar modelo detector de pez (ConvNeXt)
+            print("Cargando modelo detector de pez (ConvNeXt)...")
+            print(f"  Ruta: {fish_detector_path}")
+            model_fish_detector = ConvNeXt(in_chans=3, num_classes=2)
+            state_dict = torch.load(fish_detector_path, map_location=DEVICE, weights_only=False)
+            model_fish_detector.load_state_dict(state_dict)
+            model_fish_detector.to(DEVICE)
+            model_fish_detector.eval()
+            print("✓ Detector de pez (ConvNeXt) cargado")
+
+            # Cargar clasificador de especies (ConvNeXt)
+            print("Cargando clasificador de especies (ConvNeXt)...")
+            print(f"  Ruta: {species_classifier_path}")
+            model_species_classifier = ConvNeXt(in_chans=3, num_classes=2)
+            state_dict = torch.load(species_classifier_path, map_location=DEVICE, weights_only=False)
+            model_species_classifier.load_state_dict(state_dict)
+            model_species_classifier.to(DEVICE)
+            model_species_classifier.eval()
+            print("✓ Clasificador de especies (ConvNeXt) cargado")
+
+            # Cargar clasificador cultivada/salvaje (ConvNeXt v3)
+            print("Cargando clasificador Cultivada/Salvaje (ConvNeXt v3)...")
+            print(f"  Ruta: {wild_cultivated_v3_path}")
+            model_wild_cultivated = ConvNeXt(in_chans=3, num_classes=2)
+            if os.path.isdir(wild_cultivated_v3_path):
+                state_dict = load_state_dict_from_directory(wild_cultivated_v3_path)
+            else:
+                state_dict = torch.load(wild_cultivated_v3_path, map_location=DEVICE, weights_only=False)
+            model_wild_cultivated.load_state_dict(state_dict)
+            model_wild_cultivated.to(DEVICE)
+            model_wild_cultivated.eval()
+            print("✓ Clasificador Cultivada/Salvaje (ConvNeXt v3) cargado")
+
+            # No hay modelo separado para Lubina en ConvNeXt
+            model_wild_cultivated_lubina = None
+
+        print("=" * 60)
+        print("✓ TODOS LOS MODELOS CARGADOS EXITOSAMENTE")
+        print("=" * 60)
         return True
 
     except Exception as e:
-        print(f"Error al cargar los modelos: {e}")
+        print(f"❌ Error al cargar los modelos: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -683,17 +931,22 @@ def get_last_conv_layer_name(model):
 
 def predict_fish_pytorch(image_path, use_roi=False, generate_gradcam_images=False):
     """
-    Realiza la predicción completa del pez usando tres modelos PyTorch en cascada
+    Realiza la predicción completa del pez usando modelos PyTorch.
+
+    Según USE_NEW_MODELS:
+    - True (ViT): No hay detector de pez. Clasifica especie, luego usa modelo
+                  específico para cultivada/salvaje según la especie detectada.
+    - False (ConvNeXt): Detector de pez -> Clasificador especie -> Clasificador cultivada/salvaje
 
     Args:
         image_path: Ruta a la imagen o BytesIO
-        use_roi: Si True, usa ROI detection para mejorar la predicción (DESACTIVADO por defecto)
-        generate_gradcam_images: Si True, genera mapas de calor Grad-CAM (no implementado para PyTorch aún)
+        use_roi: Si True, usa ROI detection (DESACTIVADO por defecto)
+        generate_gradcam_images: Si True, genera Grad-CAM (no implementado para PyTorch)
 
     Returns:
         dict con las predicciones y métricas de calidad
     """
-    if model_fish_detector is None or model_species_classifier is None:
+    if model_species_classifier is None:
         raise Exception("Modelos PyTorch no cargados")
 
     if model_wild_cultivated is None:
@@ -718,20 +971,28 @@ def predict_fish_pytorch(image_path, use_roi=False, generate_gradcam_images=Fals
     img_tensor = preprocess_image_pytorch(image_to_process).to(DEVICE)
 
     # === PASO 1: Detectar si hay pez ===
-    with torch.no_grad():
-        fish_logits = model_fish_detector(img_tensor)
-        fish_probs = F.softmax(fish_logits, dim=1)[0]  # [prob_no_pez, prob_pez]
-        fish_pred = torch.argmax(fish_probs).item()
-        fish_confidence = float(fish_probs[fish_pred])
-
-    is_fish = fish_pred == 1  # 1 = Pez, 0 = No Pez
+    if USE_NEW_MODELS:
+        # Con ViT no hay detector de pez - asumimos que siempre hay pez
+        is_fish = True
+        fish_confidence = 1.0
+        fish_probs = torch.tensor([0.0, 1.0])  # [no_pez, pez]
+    else:
+        # Con ConvNeXt usamos el detector de pez
+        if model_fish_detector is None:
+            raise Exception("Detector de pez no cargado (requerido para ConvNeXt)")
+        with torch.no_grad():
+            fish_logits = model_fish_detector(img_tensor)
+            fish_probs = F.softmax(fish_logits, dim=1)[0]  # [prob_no_pez, prob_pez]
+            fish_pred = torch.argmax(fish_probs).item()
+            fish_confidence = float(fish_probs[fish_pred])
+        is_fish = fish_pred == 1  # 1 = Pez, 0 = No Pez
 
     # Si no se detectó pez, retornar resultado negativo
     if not is_fish:
         return {
             "success": True,
             "is_fish": False,
-            "fish_confidence": float(fish_probs[0]),  # Confianza de "No Pez"
+            "fish_confidence": float(fish_probs[0]),
             "species": "No detectado",
             "species_id": -1,
             "species_confidence": 0.0,
@@ -771,55 +1032,102 @@ def predict_fish_pytorch(image_path, use_roi=False, generate_gradcam_images=Fals
         species_id = torch.argmax(species_probs).item()
         species_confidence = float(species_probs[species_id])
 
-    # === PASO 3: Clasificar cultivada vs salvaje (PyTorch) ===
+    # === PASO 3: Clasificar cultivada vs salvaje ===
     classification_confidence = 0.0
     classification_id = 0
     classification_name = "No disponible"
     cultivada_prob = 0.0
     salvaje_prob = 0.0
 
-    if model_wild_cultivated is not None:
-        # Usar la misma imagen preprocesada para PyTorch
-        with torch.no_grad():
-            classification_logits = model_wild_cultivated(img_tensor)
-            classification_probs = F.softmax(classification_logits, dim=1)[0]  # [prob_cultivada, prob_salvaje]
-            classification_id = torch.argmax(classification_probs).item()
-            classification_confidence = float(classification_probs[classification_id])
-            classification_name = CLASS_NAMES[classification_id]
+    if USE_NEW_MODELS:
+        # Con ViT: usar modelo específico según la especie
+        # species_id: 0 = Lubina, 1 = Dorada (orden ViT)
+        if species_id == 0:
+            # Lubina -> usar model_wild_cultivated_lubina (DL = Dicentrarchus Labrax)
+            classification_model = model_wild_cultivated_lubina
+        else:
+            # Dorada -> usar model_wild_cultivated (SA = Sparus Aurata)
+            classification_model = model_wild_cultivated
 
-            cultivada_prob = float(classification_probs[0])
-            salvaje_prob = float(classification_probs[1])
+        if classification_model is not None:
+            with torch.no_grad():
+                classification_logits = classification_model(img_tensor)
+                classification_probs = F.softmax(classification_logits, dim=1)[0]
 
-    # Verificar si la confianza es baja
-    low_confidence = (species_confidence < CONFIDENCE_THRESHOLD or
-                     fish_confidence < CONFIDENCE_THRESHOLD or
-                     (model_wild_cultivated is not None and classification_confidence < CONFIDENCE_THRESHOLD))
+                # Para DORADA (species_id=1): el modelo tiene invertido (0=Salvaje, 1=Cultivada)
+                # Invertimos las probabilidades para que coincida con CLASS_NAMES (0=Cultivada, 1=Salvaje)
+                if species_id == 1:  # Dorada
+                    cultivada_prob = float(classification_probs[1])  # Invertido
+                    salvaje_prob = float(classification_probs[0])    # Invertido
+                    # Recalcular el ID y confianza con los valores invertidos
+                    if cultivada_prob > salvaje_prob:
+                        classification_id = 0  # Cultivada
+                        classification_confidence = cultivada_prob
+                    else:
+                        classification_id = 1  # Salvaje
+                        classification_confidence = salvaje_prob
+                else:  # Lubina - normal
+                    classification_id = torch.argmax(classification_probs).item()
+                    classification_confidence = float(classification_probs[classification_id])
+                    cultivada_prob = float(classification_probs[0])
+                    salvaje_prob = float(classification_probs[1])
 
-    # Generar advertencias
-    warnings = []
-    if low_confidence:
-        detail_parts = [f"Confianza de especie: {species_confidence*100:.1f}%",
-                       f"Confianza de detección: {fish_confidence*100:.1f}%"]
+                classification_name = CLASS_NAMES[classification_id]
+    else:
+        # Con ConvNeXt: usar el mismo modelo para ambas especies
         if model_wild_cultivated is not None:
-            detail_parts.append(f"Confianza de clasificación: {classification_confidence*100:.1f}%")
+            with torch.no_grad():
+                classification_logits = model_wild_cultivated(img_tensor)
+                classification_probs = F.softmax(classification_logits, dim=1)[0]
+                classification_id = torch.argmax(classification_probs).item()
+                classification_confidence = float(classification_probs[classification_id])
+                classification_name = CLASS_NAMES[classification_id]
+                cultivada_prob = float(classification_probs[0])
+                salvaje_prob = float(classification_probs[1])
 
-        warnings.append({
-            "type": "low_confidence",
-            "message": "Confianza baja en la predicción. Por favor, repite la foto.",
-            "detail": ", ".join(detail_parts)
-        })
+    # Verificar si la confianza es baja (DESACTIVADO - comentado por petición)
+    # low_confidence = (species_confidence < CONFIDENCE_THRESHOLD or
+    #                  fish_confidence < CONFIDENCE_THRESHOLD or
+    #                  (model_wild_cultivated is not None and classification_confidence < CONFIDENCE_THRESHOLD))
+    low_confidence = False  # Siempre False para desactivar el popup
+
+    # Generar advertencias (DESACTIVADO - comentado por petición)
+    warnings = []
+    # if low_confidence:
+    #     detail_parts = [f"Confianza de especie: {species_confidence*100:.1f}%",
+    #                    f"Confianza de detección: {fish_confidence*100:.1f}%"]
+    #     if model_wild_cultivated is not None:
+    #         detail_parts.append(f"Confianza de clasificación: {classification_confidence*100:.1f}%")
+    #
+    #     warnings.append({
+    #         "type": "low_confidence",
+    #         "message": "Confianza baja en la predicción. Por favor, repite la foto.",
+    #         "detail": ", ".join(detail_parts)
+    #     })
+
+    # Obtener nombre de especie según el modelo usado
+    if USE_NEW_MODELS:
+        species_name = SPECIES_NAMES_PYTORCH_VIT[species_id]
+        # ViT: 0=Lubina, 1=Dorada
+        dorada_prob = float(species_probs[1])
+        lubina_prob = float(species_probs[0])
+    else:
+        species_name = SPECIES_NAMES_PYTORCH_CONVNEXT[species_id]
+        # ConvNeXt: 0=Dorada, 1=Lubina
+        dorada_prob = float(species_probs[0])
+        lubina_prob = float(species_probs[1])
 
     # Construir resultado
     result = {
         "success": True,
         "is_fish": True,
         "fish_confidence": fish_confidence,
-        "species": SPECIES_NAMES_PYTORCH[species_id],
+        "species": species_name,
         "species_id": species_id,
         "species_confidence": species_confidence,
         "species_probabilities": {
-            "dorada": float(species_probs[0]),
-            "lubina": float(species_probs[1]),
+            "dorada": dorada_prob,
+            "lubina": lubina_prob,
             "otro": 0.0  # No disponible en modelo PyTorch
         },
         "classification": classification_name,
@@ -829,7 +1137,7 @@ def predict_fish_pytorch(image_path, use_roi=False, generate_gradcam_images=Fals
             "cultivada": cultivada_prob,
             "salvaje": salvaje_prob
         },
-        "summary": f"{SPECIES_NAMES_PYTORCH[species_id]} - {classification_name}",
+        "summary": f"{species_name} - {classification_name}",
         "low_confidence": low_confidence,
         "warnings": warnings,
         "quality_analysis": {
@@ -875,8 +1183,15 @@ def home():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    if model_fish_detector is None or model_species_classifier is None or model_wild_cultivated is None:
-        return jsonify({"error": "Modelos no cargados correctamente."}), 500
+    # Verificar modelos según el modo
+    if USE_NEW_MODELS:
+        # ViT: no requiere fish_detector
+        if model_species_classifier is None or model_wild_cultivated is None:
+            return jsonify({"error": "Modelos ViT no cargados correctamente."}), 500
+    else:
+        # ConvNeXt: requiere todos los modelos
+        if model_fish_detector is None or model_species_classifier is None or model_wild_cultivated is None:
+            return jsonify({"error": "Modelos ConvNeXt no cargados correctamente."}), 500
 
     if 'image' not in request.files:
         return jsonify({"error": "No se encontró la imagen en la solicitud."}), 400
@@ -939,8 +1254,13 @@ def predict_realtime():
     Endpoint optimizado para detección en tiempo real.
     No guarda imágenes en disco para mayor velocidad.
     """
-    if model_fish_detector is None or model_species_classifier is None or model_wild_cultivated is None:
-        return jsonify({"error": "Modelos no cargados correctamente."}), 500
+    # Verificar modelos según el modo
+    if USE_NEW_MODELS:
+        if model_species_classifier is None or model_wild_cultivated is None:
+            return jsonify({"error": "Modelos ViT no cargados correctamente."}), 500
+    else:
+        if model_fish_detector is None or model_species_classifier is None or model_wild_cultivated is None:
+            return jsonify({"error": "Modelos ConvNeXt no cargados correctamente."}), 500
 
     if 'image' not in request.files:
         return jsonify({"error": "No se encontró la imagen en la solicitud."}), 400
@@ -1013,22 +1333,31 @@ def analyze_quality():
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint para verificar el estado del servicio"""
-    all_models_ready = (model_fish_detector is not None and
-                       model_species_classifier is not None and
-                       model_wild_cultivated is not None)
+    if USE_NEW_MODELS:
+        # ViT: no requiere fish_detector
+        all_models_ready = (model_species_classifier is not None and
+                           model_wild_cultivated is not None and
+                           model_wild_cultivated_lubina is not None)
+        model_type = "ViT-Large (PyTorch)"
+        pipeline = "Clasificador Especies -> Clasificador Cultivada/Salvaje (específico por especie)"
+    else:
+        # ConvNeXt: requiere todos
+        all_models_ready = (model_fish_detector is not None and
+                           model_species_classifier is not None and
+                           model_wild_cultivated is not None)
+        model_type = "ConvNeXt-Tiny (PyTorch)"
+        pipeline = "Detector -> Clasificador Especies -> Clasificador Cultivada/Salvaje"
 
     return jsonify({
         "status": "ok" if all_models_ready else "partial",
+        "model_version": "new_models (ViT)" if USE_NEW_MODELS else "last_model (ConvNeXt)",
         "fish_detector_loaded": model_fish_detector is not None,
         "species_classifier_loaded": model_species_classifier is not None,
-        "wild_cultivated_classifier_loaded": model_wild_cultivated is not None,
+        "wild_cultivated_dorada_loaded": model_wild_cultivated is not None,
+        "wild_cultivated_lubina_loaded": model_wild_cultivated_lubina is not None if USE_NEW_MODELS else "N/A",
         "models_ready": all_models_ready,
-        "model_types": {
-            "fish_detector": "ConvNeXt-Tiny (PyTorch)",
-            "species_classifier": "ConvNeXt-Tiny (PyTorch)",
-            "wild_cultivated_classifier": "ConvNeXt-Tiny (PyTorch)"
-        },
-        "pipeline": "Cascada: Detector -> Clasificador Especies -> Clasificador Cultivada/Salvaje"
+        "model_type": model_type,
+        "pipeline": pipeline
     })
 
 if __name__ == '__main__':

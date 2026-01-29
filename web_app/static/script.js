@@ -1,13 +1,13 @@
 const BACKEND_URL = '/predict';
-const REALTIME_URL = '/predict_realtime';
+// const REALTIME_URL = '/predict_realtime';  // DESACTIVADO - Detección en tiempo real
 const QUALITY_URL = '/analyze_quality';
 
 let videoStream;
-let realtimeInterval = null;
-let isRealtimeActive = false;
-let qualityCheckInterval = null;
-let isQualityCheckActive = false;
-let autoCaptureEnabled = false;
+// let realtimeInterval = null;  // DESACTIVADO - Detección en tiempo real
+// let isRealtimeActive = false;  // DESACTIVADO - Detección en tiempo real
+// let qualityCheckInterval = null;  // DESACTIVADO - Análisis de calidad
+// let isQualityCheckActive = false;  // DESACTIVADO - Análisis de calidad
+// let autoCaptureEnabled = false;  // DESACTIVADO - Auto-captura
 let predictionHistory = [];
 
 // Elementos del DOM
@@ -397,7 +397,7 @@ imageUpload.addEventListener('change', (event) => {
             hideElement(videoFeed);
             hideElement(canvas);
             showElement(classifyButton);
-            hideElement(realtimeButton); // No mostrar botón en tiempo real para imágenes estáticas
+            // hideElement(realtimeButton); // DESACTIVADO - Detección en tiempo real
             classifyButton.onclick = () => classifyImage(previewImage);
             hideElement(resultsDiv);
             hideElement(errorDiv);
@@ -417,20 +417,20 @@ cameraButton.addEventListener('click', async () => {
         hideElement(previewImage);
         hideElement(canvas);
         showElement(classifyButton);
-        showElement(realtimeButton);
+        // showElement(realtimeButton);  // DESACTIVADO - Detección en tiempo real
 
-        // Mostrar botón de auto-captura
-        const autoCaptureBtn = document.getElementById('autoCaptureButton');
-        if (autoCaptureBtn) {
-            showElement(autoCaptureBtn);
-        }
+        // Mostrar botón de auto-captura (DESACTIVADO)
+        // const autoCaptureBtn = document.getElementById('autoCaptureButton');
+        // if (autoCaptureBtn) {
+        //     showElement(autoCaptureBtn);
+        // }
 
-        // Iniciar análisis de calidad automáticamente
-        startQualityCheck();
+        // Iniciar análisis de calidad automáticamente (DESACTIVADO)
+        // startQualityCheck();
 
         classifyButton.onclick = () => {
-            stopRealtimeDetection(); // Detener detección en tiempo real si está activa
-            stopQualityCheck(); // Detener análisis de calidad
+            // stopRealtimeDetection(); // DESACTIVADO - Detección en tiempo real
+            // stopQualityCheck(); // DESACTIVADO - Análisis de calidad
             const context = canvas.getContext('2d');
             canvas.width = videoFeed.videoWidth;
             canvas.height = videoFeed.videoHeight;
@@ -450,6 +450,7 @@ cameraButton.addEventListener('click', async () => {
     }
 });
 
+/* DESACTIVADO - Análisis de calidad en tiempo real
 // Iniciar análisis de calidad
 function startQualityCheck() {
     if (isQualityCheckActive) return;
@@ -485,9 +486,16 @@ function stopQualityCheck() {
     realtimeOverlay.classList.remove('active');
     clearRealtimeOverlay();
 }
+*/
 
-// ======= DETECCIÓN EN TIEMPO REAL =======
+// Funciones stub para evitar errores (DESACTIVADO)
+function startQualityCheck() {}
+function stopQualityCheck() {}
 
+// ======= DETECCIÓN EN TIEMPO REAL Y ANÁLISIS DE CALIDAD (DESACTIVADO) =======
+// Todo el bloque está comentado
+
+/* DESACTIVADO - Análisis de calidad de imagen
 // Analizar calidad de imagen en tiempo real
 async function analyzeQualityFrame() {
     if (!videoFeed.videoWidth || !videoFeed.videoHeight) {
@@ -590,7 +598,9 @@ function drawROIBox(bbox) {
         "></div>
     `;
 }
+*/
 
+/* DESACTIVADO - Detección en tiempo real
 // Capturar frame del video y clasificar
 async function captureAndClassifyFrame() {
     if (!videoFeed.videoWidth || !videoFeed.videoHeight) {
@@ -653,7 +663,9 @@ async function captureAndClassifyFrame() {
         }, false);
     }
 }
+*/
 
+/* DESACTIVADO - Detección en tiempo real
 // Actualizar overlay con resultados mejorado con más información visual
 function updateRealtimeOverlay(data, fishDetected) {
     console.log('Actualizando overlay:', data, 'Fish detected:', fishDetected);
@@ -701,7 +713,6 @@ function updateRealtimeOverlay(data, fishDetected) {
         overlayContent.innerHTML = `
             <div class="overlay-detection-info">
                 ${lowConfidenceWarning}
-                <!-- Badges principales -->
                 <div class="overlay-main-badges">
                     <div class="overlay-badge species-badge">
                         <span class="badge-icon">${speciesIcon}</span>
@@ -714,7 +725,6 @@ function updateRealtimeOverlay(data, fishDetected) {
                     </div>
                 </div>
 
-                <!-- Barras de progreso de especies -->
                 <div class="overlay-probabilities">
                     <div class="prob-section">
                         <div class="prob-header">
@@ -751,7 +761,6 @@ function updateRealtimeOverlay(data, fishDetected) {
                         </div>
                     </div>
 
-                    <!-- Barras de clasificación -->
                     <div class="prob-section">
                         <div class="prob-header">
                             <span class="prob-label">Clasificación</span>
@@ -778,7 +787,6 @@ function updateRealtimeOverlay(data, fishDetected) {
                         </div>
                     </div>
 
-                    <!-- Confianza de detección -->
                     <div class="overlay-detection-confidence">
                         <i class="bi bi-check-circle-fill"></i>
                         <span>Pez detectado: ${fishConf}%</span>
@@ -788,7 +796,6 @@ function updateRealtimeOverlay(data, fishDetected) {
         `;
     }
 
-    // Mostrar overlay
     realtimeOverlay.classList.add('active');
     console.log('Overlay activado, clases:', realtimeOverlay.className);
     console.log('Overlay display:', window.getComputedStyle(realtimeOverlay).display);
@@ -801,7 +808,13 @@ function clearRealtimeOverlay() {
         overlayContent.innerHTML = '';
     }
 }
+*/
 
+// Funciones stub para evitar errores (DESACTIVADO)
+function clearRealtimeOverlay() {}
+function stopRealtimeDetection() {}
+
+/* DESACTIVADO - Detección en tiempo real
 // Iniciar detección en tiempo real
 function startRealtimeDetection() {
     if (isRealtimeActive) return;
@@ -861,6 +874,7 @@ realtimeButton.addEventListener('click', () => {
         startRealtimeDetection();
     }
 });
+*/
 
 // Event listeners para el modal
 closeModalButton.addEventListener('click', closeModal);
@@ -875,6 +889,7 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+/* DESACTIVADO - Auto-captura
 // Event listener para auto-captura
 const autoCaptureButton = document.getElementById('autoCaptureButton');
 if (autoCaptureButton) {
@@ -890,3 +905,4 @@ if (autoCaptureButton) {
         }
     });
 }
+*/

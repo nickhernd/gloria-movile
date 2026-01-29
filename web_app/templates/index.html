@@ -63,8 +63,11 @@
                             <canvas id="canvas" class="preview-media"></canvas>
                             <img id="previewImage" src="#" alt="Vista previa" class="preview-media">
 
-                            <!-- Overlay de detección en tiempo real -->
-                            <div id="realtimeOverlay" class="realtime-overlay">
+                            <!-- Overlay de detección en tiempo real (DESACTIVADO) -->
+                            <!-- <div id="realtimeOverlay" class="realtime-overlay">
+                                <div class="overlay-content"></div>
+                            </div> -->
+                            <div id="realtimeOverlay" class="realtime-overlay" style="display:none !important;">
                                 <div class="overlay-content"></div>
                             </div>
                         </div>
@@ -74,10 +77,14 @@
                             <button id="classifyButton" class="btn btn-lg px-4 classify-btn">
                                 Analizar
                             </button>
+                            <!-- Botón de detección en vivo (DESACTIVADO)
                             <button id="realtimeButton" class="btn btn-lg px-4 realtime-btn">
                                 <i class="bi bi-camera-video"></i>
                                 Detección en Vivo
                             </button>
+                            -->
+                            <!-- Elemento oculto para evitar errores en JS -->
+                            <button id="realtimeButton" style="display:none !important;"></button>
                             <button id="autoCaptureButton" class="btn btn-lg px-4 autocapture-btn" style="display: none;">
                                 <i class="bi bi-magic"></i>
                                 Auto-Captura
