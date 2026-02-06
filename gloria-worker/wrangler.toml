@@ -1,5 +1,0 @@
-name = "gloria-worker"
-compatibility_date = "2023-10-30"
-
-# This is required to make the 'frontend' directory available to the worker
-pages_build_output_dir = "frontend"
